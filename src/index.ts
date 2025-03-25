@@ -2,8 +2,75 @@ import * as mineflayer from 'mineflayer';
 import * as dotenv from 'dotenv';
 import mcData = require('minecraft-data');
 import * as pathfinder from 'mineflayer-pathfinder';
-import { StateGraph, END } from "@langchain/langgraph-sdk";
+import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages"; // Although not used yet, good to have for potential future message passing
+
+// Define your own StateGraph and END until the langgraph-sdk exports them
+class StateGraph<T> {
+  channels: Record<string, { value: any }>;
+  nodes: Map<string, (state: T) => Promise<Partial<T>>>;
+  edges: Map<string, string[]>;
+  entryPoint: string | null;
+
+  constructor(options: { channels: Record<string, { value: any }> }) {
+    this.channels = options.channels;
+    this.nodes = new Map();
+    this.edges = new Map();
+    this.entryPoint = null;
+  }
+
+  addNode(name: string, fn: (state: T) => Promise<Partial<T>>) {
+    this.nodes.set(name, fn);
+    return this;
+  }
+
+  setEntryPoint(name: string) {
+    this.entryPoint = name;
+    return this;
+  }
+
+  addEdge(from: string, to: string) {
+    if (!this.edges.has(from)) {
+      this.edges.set(from, []);
+    }
+    this.edges.get(from)!.push(to);
+    return this;
+  }
+
+  compile() {
+    return {
+      stream: (initialState: T, options?: { recursionLimit?: number }) => {
+        const limit = options?.recursionLimit || 100;
+        let currentNode = this.entryPoint;
+        let state = { ...initialState };
+        const graph = this;
+        
+        return {
+          [Symbol.asyncIterator]() {
+            return (async function* () {
+              for (let i = 0; i < limit; i++) {
+                if (!currentNode) break;
+                
+                const nodeFn = graph.nodes.get(currentNode);
+                if (!nodeFn) break;
+                
+                const result = await nodeFn(state);
+                state = { ...state, ...result };
+                
+                yield { [currentNode]: result };
+                
+                const nextNodes = graph.edges.get(currentNode) || [];
+                currentNode = nextNodes[0] || null;
+              }
+            })();
+          }
+        };
+      }
+    };
+  }
+}
+
+const END = "end";
 
 import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
@@ -53,7 +120,7 @@ bot.once('spawn', () => {
     // Initialize pathfinder plugin
     bot.loadPlugin(pathfinder.pathfinder);
     const mcDataInstance = mcData(bot.version);
-    const defaultMove = new pathfinder.Movements(bot, mcDataInstance);
+    const defaultMove = new pathfinder.Movements(bot);
     // Configure movements (optional, customize as needed)
     defaultMove.allowSprinting = true;
     defaultMove.canDig = true; // Allow breaking blocks if necessary for pathing

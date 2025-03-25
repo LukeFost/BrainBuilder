@@ -2,7 +2,7 @@ import { Memory } from './types';
 import { ChatOpenAI } from '@langchain/openai';
 
 export class MemoryManager {
-  private model: ChatOpenAI;
+  private model: ChatOpenAI | undefined;
   private memory: Memory;
   private maxShortTermSize: number;
   
