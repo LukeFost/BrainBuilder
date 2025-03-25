@@ -6,6 +6,9 @@ const { SkillRepository } = require('./agent/skills/skillRepository.js'); // Imp
 // Load environment variables
 dotenv.config();
 
+// Instantiate SkillRepository
+const skillRepository = new SkillRepository();
+
 // Bot configuration
 const botConfig = {
   host: 'localhost', // or your LAN IP address
@@ -47,9 +50,10 @@ const openai = new ChatOpenAI({
 });
 
 // Bot event handlers
-bot.once('spawn', () => {
+bot.once('spawn', async () => { // Make spawn handler async
   console.log('Bot has spawned');
-  
+  await skillRepository.loadSkills(); // Load skills early
+
   try {
     // Try to initialize mineflayer-pathfinder if it's available
     try {
