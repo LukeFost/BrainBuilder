@@ -115,9 +115,8 @@ const state: State = {
 bot.once('spawn', async () => { // Add async here
   console.log('Bot has spawned');
 
-  // Initialize memory manager (load from file if exists)
-  await memoryManager.initialize();
-  console.log("MemoryManager initialized.");
+  // Memory manager is initialized in its constructor now
+  console.log("MemoryManager created.");
 
   let pathfinderInitialized = false;
   try {

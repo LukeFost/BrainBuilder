@@ -50,7 +50,7 @@ Output your plan as a list of steps, one per line. Prefer specific actions when 
   }
   
   async decideNextAction(state: State): Promise<string> {
-    const prompt = `
+    let prompt = `
 You are a Minecraft agent deciding what to do next.
 
 Current inventory: ${JSON.stringify(state.inventory)}
