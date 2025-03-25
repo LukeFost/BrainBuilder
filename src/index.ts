@@ -295,12 +295,15 @@ async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>>
   if (needsNewPlan && currentState.currentGoal) {
     console.log("Creating new plan...");
     try {
-      const plan = await planner.createPlan(currentState, currentState.currentGoal);
-      // Clean the plan steps: remove numbering like "1. "
-      const cleanedPlan = plan.map(step => step.replace(/^\d+\.\s*/, '').trim()).filter(step => step.length > 0);
-      console.log("New plan created:", cleanedPlan); // Log cleaned plan
+      const planStepsRaw = await planner.createPlan(currentState, currentState.currentGoal);
+      // Clean the plan steps: remove numbering like "1. " and filter empty lines
+      const cleanedPlan = planStepsRaw
+        .map(step => step.replace(/^\d+\.\s*/, '').trim())
+        .filter(step => step.length > 0);
+        
+      console.log("New plan created:", cleanedPlan);
       // If a new plan was made, decide the first action from it
-      if (cleanedPlan && cleanedPlan.length > 0) {
+      if (cleanedPlan.length > 0) {
         nextAction = cleanedPlan[0];
         console.log(`Next action from new plan: ${nextAction}`);
         return { currentPlan: cleanedPlan, lastAction: nextAction }; // Update plan and set next action
@@ -349,15 +352,18 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
       memoryManager.addToShortTerm(`Action: ${actionToPerform} - Result: ${result}`);
 
       let updatedPlan = currentState.currentPlan;
-      // If the executed action matches the first step of the plan, remove it
-      if (currentState.currentPlan && currentState.currentPlan.length > 0 &&
-          currentState.currentPlan[0] === actionToPerform) {
-        console.log(`Completed plan step: ${currentState.currentPlan[0]}`);
-        updatedPlan = currentState.currentPlan.slice(1);
-      } else if (currentState.currentPlan && currentState.currentPlan.length > 0) {
-        console.log(`Executed action "${actionToPerform}" does not match current plan step "${currentState.currentPlan[0]}". Plan may need revision.`);
-        // Consider adding logic here to potentially invalidate the plan if the mismatch persists
-        // For now, we just log. The 'think' node might decide to replan based on failure.
+      // Clean the current plan step for comparison
+      const currentPlanStepClean = currentState.currentPlan && currentState.currentPlan.length > 0
+        ? currentState.currentPlan[0].replace(/^\d+\.\s*/, '').trim()
+        : null;
+
+      // If the executed action matches the *cleaned* first step of the plan, remove it
+      if (currentPlanStepClean && actionToPerform === currentPlanStepClean) {
+        console.log(`Completed plan step: ${currentState.currentPlan![0]}`); // Log original step
+        updatedPlan = currentState.currentPlan!.slice(1);
+      } else if (currentPlanStepClean) {
+        console.log(`Executed action "${actionToPerform}" does not match current plan step "${currentState.currentPlan![0]}". Plan may need revision.`);
+        // The 'think' node/critic should handle replanning based on failure or deviation.
       }
 
       // Return the result and potentially updated plan
