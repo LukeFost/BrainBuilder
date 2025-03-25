@@ -34,3 +34,8 @@ yarn-error.log*
 Thumbs.db
 .aider*
 CLAUDE.md
+
+# Agent Memory Files
+short_term_memory.json
+long_term_memory.json
+agent_memory.json
