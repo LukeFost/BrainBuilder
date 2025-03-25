@@ -475,7 +475,7 @@ async function buildShelter(args) {
     bot.chat('Building a shelter [SIMULATED]');
     
     // Check if we have wood in the inventory
-    const woodCount = state.inventory.items['oak_planks'] || 0;
+    const woodCount = currentState.inventory.items['oak_planks'] || 0;
     if (woodCount < 20) {
       return 'Not enough wood to build a shelter (need at least 20)';
     }

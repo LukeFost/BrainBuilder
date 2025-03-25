@@ -30,15 +30,31 @@ export const actions: Record<string, Action> = {
         }
         
         const dataForVersion = mcData(bot.version);
-        const blockData = dataForVersion.blocksByName[blockType]; // Use blockData instead of blockId directly
+        
+        // Handle common block name variations
+        let actualBlockType = blockType;
+        if (blockType === 'wood' || blockType === 'log') {
+          // Try to find any type of log
+          const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+          for (const logType of logTypes) {
+            if (dataForVersion.blocksByName[logType]) {
+              actualBlockType = logType;
+              console.log(`[Action:collectBlock] Translating '${blockType}' to specific block type: ${actualBlockType}`);
+              break;
+            }
+          }
+        }
+        
+        const blockData = dataForVersion.blocksByName[actualBlockType];
         
         if (!blockData) {
-          const errorMsg = `Block type '${blockType}' not found in Minecraft data for version ${bot.version}`;
+          const errorMsg = `Block type '${actualBlockType}' (from '${blockType}') not found in minecraft-data for version ${bot.version}`;
           console.error(`[Action:collectBlock] ${errorMsg}`);
           return errorMsg;
         }
+        
         const blockId = blockData.id;
-        console.log(`[Action:collectBlock] Searching for block '${blockType}' (ID: ${blockId})`);
+        console.log(`[Action:collectBlock] Searching for block '${actualBlockType}' (ID: ${blockId})`);
         
         const block = bot.findBlock({
           matching: blockId,
@@ -47,12 +63,12 @@ export const actions: Record<string, Action> = {
         });
         
         if (!block) {
-          const message = `Could not find ${blockType} nearby within 32 blocks.`;
+          const message = `Could not find ${actualBlockType} nearby within 32 blocks.`;
           console.log(`[Action:collectBlock] ${message}`);
           return message;
         }
         
-        console.log(`[Action:collectBlock] Found ${blockType} at (${block.position.x}, ${block.position.y}, ${block.position.z}). Moving to it.`);
+        console.log(`[Action:collectBlock] Found ${actualBlockType} at (${block.position.x}, ${block.position.y}, ${block.position.z}). Moving to it.`);
         // Create a goal to get near the block to mine it
         const goal = new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z);
         
@@ -68,8 +84,8 @@ export const actions: Record<string, Action> = {
         
         await bot.dig(block);
         
-        console.log(`[Action:collectBlock] Successfully collected ${blockType}.`);
-        return `Collected ${blockType}`;
+        console.log(`[Action:collectBlock] Successfully collected ${actualBlockType}.`);
+        return `Collected ${actualBlockType}`;
       } catch (error: any) {
         const errorMsg = `Failed to collect ${blockType}: ${error.message || error}`;
         console.error(`[Action:collectBlock] ${errorMsg}`);
