@@ -229,7 +229,8 @@ export const actions: Record<string, Action> = {
                  } else { console.warn(`[Action:craftItem] Hand recipe for ${itemName} has no delta.`); }
 
                  if (canCraft) {
-                     await bot.craft(recipe, count, null);
+                     // Pass undefined instead of null for crafting table argument
+                     await bot.craft(recipe, count, undefined);
                      console.log(`[Action:craftItem] bot.craft called for ${count} ${itemName} (hand)`);
                      // Update state inventory
                      if (recipe.delta) {
