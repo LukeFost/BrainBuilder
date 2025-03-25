@@ -4,10 +4,10 @@ export interface State {
     surroundings: Surroundings;
     currentGoal?: string;
     currentPlan?: string[];
-    lastAction?: string;
-    lastActionResult?: string;
+    lastAction?: string; // The action decided by the 'think' node
+    lastActionResult?: string; // The result of the 'act' node
+    next?: string; // Helper for conditional edges in the graph
   }
-  
   export interface Memory {
     shortTerm: string[];
     longTerm: string;

@@ -2,10 +2,18 @@ import * as mineflayer from 'mineflayer';
 import * as dotenv from 'dotenv';
 import mcData = require('minecraft-data');
 import * as pathfinder from 'mineflayer-pathfinder';
+import { StateGraph, END } from "@langchain/langgraph-sdk";
+import { BaseMessage } from "@langchain/core/messages"; // Although not used yet, good to have for potential future message passing
+
 import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
 import { actions } from './agent/actions';
 import { State } from './agent/types';
+
+// Define the LangGraph state object structure
+// Note: We are using our existing State interface. If more complex message passing is needed later,
+// we might switch to MessagesState or a custom class extending it.
+type GraphState = State;
 
 // Load environment variables
 dotenv.config();
@@ -68,6 +76,9 @@ bot.once('spawn', () => {
   }
 });
 
+// --- Chat Command Handling ---
+// Keep the existing bot.on('chat', ...) handler as is for now.
+// We might integrate some commands into the graph later if needed.
 bot.on('chat', (username, message) => {
   // Handle commands from chat
   console.log(`[Chat] Received message from ${username}: "${message}"`); 
@@ -123,43 +134,14 @@ Available commands:
 bot.on('kicked', console.log);
 bot.on('error', console.log);
 
-// Agent loop
-async function startAgentLoop() {
-  console.log('Starting agent loop');
-  
-  try {
-    // Agent loop - runs every 2 seconds
-    setInterval(async () => {
-      try {
-        // OBSERVE: Update state with current observations
-        await observe();
-        
-        // THINK: Plan or decide on next action
-        await think();
-        
-        // ACT: Execute the decided action
-        await act();
-        
-        // Log current status
-        console.log('---------------------');
-        console.log(`Goal: ${state.currentGoal}`);
-        console.log(`Plan: ${state.currentPlan?.join('\n  ') || 'None'}`);
-        console.log(`Last action: ${state.lastAction}`);
-        console.log(`Result: ${state.lastActionResult}`);
-      } catch (error) {
-        console.error('Error in agent loop:', error);
-      }
-    }, 2000);
-  } catch (error) {
-    console.error('Error starting agent:', error);
-  }
-}
 
-// Observe function
-async function observe() {
+// --- Graph Nodes ---
+
+// Observe Node: Gathers information about the environment and updates the state.
+async function observeNode(currentState: GraphState): Promise<Partial<GraphState>> {
+  console.log("--- Running Observe Node ---");
   // Update state with current observations
   const position = bot.entity.position;
-  
   // Get inventory
   const inventory: Record<string, number> = {};
   bot.inventory.items().forEach(item => {
@@ -195,71 +177,85 @@ async function observe() {
       z: position.z
     }
   };
+
+  // Return the updated parts of the state
+  return {
+    inventory: { items: inventory },
+    surroundings: state.surroundings,
+    memory: memoryManager.fullMemory // Ensure memory is fresh
+  };
 }
 
-// Think function
-async function think() {
+
+// Think Node: Decides the next action or if replanning is needed.
+async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>> {
+  console.log("--- Running Think Node ---");
   let needsNewPlan = false;
-  
+  let nextAction: string | undefined = undefined;
+
   // Reason 1: No plan exists or current plan is completed
-  if (!state.currentPlan || state.currentPlan.length === 0) {
+  if (!currentState.currentPlan || currentState.currentPlan.length === 0) {
     console.log("Reason for new plan: No current plan or plan completed.");
     needsNewPlan = true;
   }
-  
+
   // Reason 2: Last action failed significantly (customize condition as needed)
-  if (state.lastActionResult && state.lastActionResult.toLowerCase().includes('failed')) {
-    console.log(`Reason for considering new plan: Last action failed - "${state.lastActionResult}"`);
+  if (currentState.lastActionResult && currentState.lastActionResult.toLowerCase().includes('failed')) {
+    console.log(`Reason for considering new plan: Last action failed - "${currentState.lastActionResult}"`);
     // Simple strategy: Always replan on failure. More complex logic could be added.
-    needsNewPlan = true; 
+    needsNewPlan = true;
   }
   
   // Reason 3: The executed action didn't match the plan step (handled in act, but could trigger replan here too)
   // if (state.lastAction && state.currentPlan && state.currentPlan.length > 0 && state.lastAction !== state.currentPlan[0]) {
   //    console.log("Reason for considering new plan: Action deviated from plan.");
-  //    needsNewPlan = true; 
+  //    needsNewPlan = true;
   // }
-  
-  if (needsNewPlan && state.currentGoal) {
+
+  if (needsNewPlan && currentState.currentGoal) {
     console.log("Creating new plan...");
     try {
-      const plan = await planner.createPlan(state, state.currentGoal);
-      state.currentPlan = plan;
+      const plan = await planner.createPlan(currentState, currentState.currentGoal);
       console.log("New plan created:", plan);
       // If a new plan was made, decide the first action from it
-      if (state.currentPlan && state.currentPlan.length > 0) {
-        state.lastAction = state.currentPlan[0];
-        console.log(`Next action from new plan: ${state.lastAction}`);
+      if (plan && plan.length > 0) {
+        nextAction = plan[0];
+        console.log(`Next action from new plan: ${nextAction}`);
+        return { currentPlan: plan, lastAction: nextAction }; // Update plan and set next action
       } else {
         console.log("New plan is empty, deciding fallback action.");
-        state.lastAction = await planner.decideNextAction(state); // Fallback if plan is empty
+        nextAction = await planner.decideNextAction(currentState); // Fallback if plan is empty
+        return { currentPlan: plan, lastAction: nextAction };
       }
     } catch (error) {
       console.error("Error creating new plan:", error);
-      state.lastAction = 'lookAround'; // Fallback action on planning error
+      nextAction = 'lookAround'; // Fallback action on planning error
+      return { lastAction: nextAction };
     }
-    return; // Exit think() after attempting to create a new plan
+  } else {
+    // If no new plan is needed, decide the next action based on the current state/plan
+    console.log("Continuing with existing plan or deciding next action.");
+    nextAction = await planner.decideNextAction(currentState);
+    console.log(`Decided next action: ${nextAction}`);
+    return { lastAction: nextAction }; // Only update the next action
   }
-  
-  // If no new plan is needed, decide the next action based on the current state/plan
-  console.log("Continuing with existing plan or deciding next action.");
-  const nextAction = await planner.decideNextAction(state);
-  state.lastAction = nextAction;
-  console.log(`Decided next action: ${state.lastAction}`);
 }
 
-// Act function
-async function act() {
-  if (!state.lastAction) {
-    state.lastActionResult = "No action to perform";
-    return;
+
+// Act Node: Executes the action decided by the 'think' node.
+async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
+  console.log("--- Running Act Node ---");
+  const actionToPerform = currentState.lastAction; // Get action from state
+
+  if (!actionToPerform) {
+    console.log("No action decided. Skipping act node.");
+    return { lastActionResult: "No action to perform" };
   }
-  
+
   // Parse action and arguments
-  const parts = state.lastAction.split(' ');
+  const parts = actionToPerform.split(' ');
   const actionName = parts[0];
   const args = parts.slice(1);
-  
   // Execute action
   if (actions[actionName]) {
     try {
@@ -267,30 +263,111 @@ async function act() {
       const result = await actions[actionName].execute(bot, args);
       
       // Update memory with action result
-      memoryManager.addToShortTerm(`Action: ${state.lastAction} - Result: ${result}`);
-      
+      memoryManager.addToShortTerm(`Action: ${actionToPerform} - Result: ${result}`);
+
+      let updatedPlan = currentState.currentPlan;
       // If the executed action matches the first step of the plan, remove it
-      if (state.currentPlan && state.currentPlan.length > 0 &&
-          state.currentPlan[0] === state.lastAction) {
-        console.log(`Completed plan step: ${state.currentPlan[0]}`);
-        state.currentPlan = state.currentPlan.slice(1);
-      } else if (state.currentPlan && state.currentPlan.length > 0) {
-        console.log(`Executed action "${state.lastAction}" does not match current plan step "${state.currentPlan[0]}". Plan may need revision.`);
+      if (currentState.currentPlan && currentState.currentPlan.length > 0 &&
+          currentState.currentPlan[0] === actionToPerform) {
+        console.log(`Completed plan step: ${currentState.currentPlan[0]}`);
+        updatedPlan = currentState.currentPlan.slice(1);
+      } else if (currentState.currentPlan && currentState.currentPlan.length > 0) {
+        console.log(`Executed action "${actionToPerform}" does not match current plan step "${currentState.currentPlan[0]}". Plan may need revision.`);
         // Consider adding logic here to potentially invalidate the plan if the mismatch persists
+        // For now, we just log. The 'think' node might decide to replan based on failure.
       }
-      
-      state.lastActionResult = result;
-      state.memory = memoryManager.fullMemory;
-    } catch (error) {
-      const errorMsg = `Failed to execute ${actionName}: ${error}`;
+
+      // Return the result and potentially updated plan
+      return {
+        lastActionResult: result,
+        currentPlan: updatedPlan,
+        memory: memoryManager.fullMemory // Update memory in state
+      };
+    } catch (error: any) {
+      const errorMsg = `Failed to execute ${actionName}: ${error.message || error}`;
+      console.error(`[ActNode] ${errorMsg}`);
       memoryManager.addToShortTerm(errorMsg);
-      state.lastActionResult = errorMsg;
-      state.memory = memoryManager.fullMemory;
+      // Return failure result and updated memory
+      return {
+        lastActionResult: errorMsg,
+        memory: memoryManager.fullMemory
+      };
     }
   } else {
     const errorMsg = `Unknown action: ${actionName}`;
+    console.error(`[ActNode] ${errorMsg}`);
     memoryManager.addToShortTerm(errorMsg);
-    state.lastActionResult = errorMsg;
-    state.memory = memoryManager.fullMemory;
+    // Return unknown action result and updated memory
+    return {
+      lastActionResult: errorMsg,
+      memory: memoryManager.fullMemory
+    };
+  }
+}
+
+
+// --- Graph Definition ---
+const workflow = new StateGraph<GraphState>({
+  channels: {
+    // Define the structure of the state object channels
+    memory: { value: null },
+    inventory: { value: null },
+    surroundings: { value: null },
+    currentGoal: { value: null },
+    currentPlan: { value: null },
+    lastAction: { value: null },
+    lastActionResult: { value: null },
+    next: { value: null }, // Used for routing, might not be strictly needed for simple loop
+  }
+});
+
+// Add nodes
+workflow.addNode("observe", observeNode);
+workflow.addNode("think", thinkNode);
+workflow.addNode("act", actNode);
+
+// Define edges
+workflow.setEntryPoint("observe"); // Start with observing
+workflow.addEdge("observe", "think"); // After observing, think
+workflow.addEdge("think", "act"); // After thinking, act
+workflow.addEdge("act", "observe"); // After acting, observe again (loop)
+
+// Compile the graph
+const app = workflow.compile();
+
+
+// --- Agent Loop ---
+async function startAgentLoop() {
+  console.log('Starting agent loop using LangGraph');
+
+  try {
+    // Initial state setup before starting the loop
+    // We use the global `state` object as the initial input.
+    // Ensure observe runs first to populate initial surroundings etc.
+    const initialState = await observeNode(state); // Run observe once to get initial data
+    const fullInitialState = { ...state, ...initialState }; // Merge with existing state (like goal)
+
+    console.log("Initial State:", fullInitialState);
+
+    // Stream the graph execution
+    const stream = app.stream(fullInitialState, {
+        // recursionLimit: 100 // Optional: Set recursion limit
+    });
+
+    for await (const step of stream) {
+        // Log the output of each node step
+        const nodeName = Object.keys(step)[0];
+        console.log(`--- Finished Node: ${nodeName} ---`);
+        console.log("Output:", step[nodeName]);
+        console.log('---------------------');
+
+        // Optional: Add a delay between cycles if needed
+        // await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    console.log("Agent loop finished or stopped.");
+
+  } catch (error) {
+    console.error('Error running LangGraph agent loop:', error);
   }
 }
