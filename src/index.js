@@ -270,10 +270,15 @@ Create a step-by-step plan to achieve this goal. Each step should be a single ac
 Available actions:
 - lookAround
 - moveToPosition <x> <y> <z>
-- collectBlock <blockType> <count>
-- buildShelter
+- collectBlock <blockType> <count> (use specific block types like 'oak_log', 'birch_log', etc.)
+- craftItem <itemName> <count> (for crafting planks, sticks, etc.)
+- buildShelter (this will use code generation to build a shelter with the materials in inventory)
+- generateAndExecuteCode <task description> (for complex tasks not covered by other actions)
 
 Output your plan as a list of steps, one per line.
+
+IMPORTANT: For collecting wood, use specific block types like 'oak_log' or 'birch_log', not just 'wood'.
+For building, make sure to collect enough logs first (at least 5-10 logs).
 `;
 
     const response = await openai.invoke([
@@ -366,7 +371,54 @@ async function act() {
     } else if (actionName === 'collectBlock') {
       result = await collectBlock(args);
     } else if (actionName === 'buildShelter') {
-      result = await buildShelter(args);
+      // Redirect buildShelter to generateAndExecuteCode
+      console.log('Redirecting buildShelter to generateAndExecuteCode for emergent behavior');
+      
+      // Check if we have enough wood first
+      const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+      const plankTypes = ['oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks'];
+      
+      let totalWoodCount = 0;
+      
+      // Count logs (each log = 4 planks)
+      for (const logType of logTypes) {
+        const count = state.inventory.items[logType] || 0;
+        totalWoodCount += count * 4; // Each log can make 4 planks
+      }
+      
+      // Count planks
+      for (const plankType of plankTypes) {
+        const count = state.inventory.items[plankType] || 0;
+        totalWoodCount += count;
+      }
+      
+      if (totalWoodCount < 20) {
+        return `Not enough wood to build a shelter (need at least 20 planks, have ${totalWoodCount} planks equivalent)`;
+      }
+      
+      // Use the Coder class to generate and execute code for building a shelter
+      try {
+        const { Coder } = require('./agent/coder');
+        const coder = new Coder(bot, process.env.OPENAI_API_KEY);
+        const buildTask = "Build a small shelter using the wood in my inventory. The shelter should have walls, a roof, and a door.";
+        const result = await coder.generateAndExecute(buildTask, state);
+        return result.message;
+      } catch (error) {
+        return `Failed to build shelter using code generation: ${error}`;
+      }
+    } else if (actionName === 'generateAndExecuteCode') {
+      // Direct use of generateAndExecuteCode
+      try {
+        const taskDescription = args.join(' ');
+        const { Coder } = require('./agent/coder');
+        const coder = new Coder(bot, process.env.OPENAI_API_KEY);
+        const result = await coder.generateAndExecute(taskDescription, state);
+        return result.message;
+      } catch (error) {
+        return `Failed to execute code: ${error}`;
+      }
+    } else if (actionName === 'craftItem') {
+      result = await craftItem(args);
     } else {
       result = `Unknown action: ${actionName}`;
     }
@@ -389,6 +441,43 @@ async function act() {
 }
 
 // Action implementations
+async function craftItem(args) {
+  try {
+    const [itemName, countStr] = args;
+    const count = parseInt(countStr, 10) || 1;
+    
+    console.log(`Attempting to craft ${count} ${itemName}`);
+    
+    // Handle crafting planks from logs
+    if (itemName.includes('planks')) {
+      // Determine which log type to use based on the planks requested
+      const logType = itemName.replace('_planks', '_log');
+      const logCount = Math.ceil(count / 4); // Each log makes 4 planks
+      
+      // Check if we have enough logs
+      if (!state.inventory.items[logType] || state.inventory.items[logType] < logCount) {
+        return `Not enough ${logType} to craft ${count} ${itemName}. Need ${logCount} logs.`;
+      }
+      
+      // Simulate crafting
+      console.log(`Simulating crafting ${count} ${itemName} from ${logCount} ${logType}`);
+      bot.chat(`Crafting ${count} ${itemName} [SIMULATED]`);
+      
+      // Update inventory
+      state.inventory.items[logType] -= logCount;
+      state.inventory.items[itemName] = (state.inventory.items[itemName] || 0) + (logCount * 4);
+      
+      return `Crafted ${logCount * 4} ${itemName} from ${logCount} ${logType}`;
+    }
+    
+    // Handle other crafting recipes as needed
+    
+    return `Crafting ${itemName} is not implemented yet`;
+  } catch (error) {
+    return `Failed to craft ${args[0]}: ${error}`;
+  }
+}
+
 async function lookAround() {
   const position = bot.entity.position;
   const nearbyEntities = Object.values(bot.entities)
@@ -432,10 +521,25 @@ async function collectBlock(args) {
     try {
       // Try to get block data
       const mcData = require('minecraft-data')(bot.version);
-      const blockId = mcData.blocksByName[blockType]?.id;
+      
+      // Handle common block name variations
+      let actualBlockType = blockType;
+      if (blockType === 'wood' || blockType === 'log') {
+        // Try to find any type of log
+        const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+        for (const logType of logTypes) {
+          if (mcData.blocksByName[logType]) {
+            actualBlockType = logType;
+            console.log(`Translating '${blockType}' to specific block type: ${actualBlockType}`);
+            break;
+          }
+        }
+      }
+      
+      const blockId = mcData.blocksByName[actualBlockType]?.id;
       
       if (!blockId) {
-        return `Block ${blockType} not found in minecraft-data`;
+        return `Block ${actualBlockType} (from ${blockType}) not found in minecraft-data`;
       }
       
       // Find the block
@@ -445,75 +549,47 @@ async function collectBlock(args) {
       });
       
       if (!block) {
-        return `Could not find ${blockType} nearby`;
+        return `Could not find ${actualBlockType} nearby`;
       }
       
       // Move to the block
-      bot.chat(`Moving to ${blockType} at (${block.position.x}, ${block.position.y}, ${block.position.z})`);
+      bot.chat(`Moving to ${actualBlockType} at (${block.position.x}, ${block.position.y}, ${block.position.z})`);
       await bot.moveToPosition(block.position.x, block.position.y, block.position.z);
       
       // Dig the block
-      bot.chat(`Mining ${blockType}`);
+      bot.chat(`Mining ${actualBlockType}`);
       await bot.dig(block);
       
-      return `Collected ${blockType}`;
+      // Update inventory (this is a simplification, the real bot would update inventory automatically)
+      state.inventory.items[actualBlockType] = (state.inventory.items[actualBlockType] || 0) + 1;
+      
+      return `Collected ${actualBlockType}`;
     } catch (e) {
       // If anything fails, fall back to simulation
       console.log(`Error in real block collection, simulating instead: ${e.message}`);
       bot.chat(`Collecting ${count} ${blockType} [SIMULATED due to error]`);
-      return `Collected ${blockType} [SIMULATED]`;
+      
+      // Even in simulation, update the inventory for planning purposes
+      const mcData = require('minecraft-data')(bot.version);
+      let actualBlockType = blockType;
+      if (blockType === 'wood' || blockType === 'log') {
+        const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+        for (const logType of logTypes) {
+          if (mcData.blocksByName[logType]) {
+            actualBlockType = logType;
+            break;
+          }
+        }
+      }
+      
+      // Update inventory in simulation mode
+      state.inventory.items[actualBlockType] = (state.inventory.items[actualBlockType] || 0) + 1;
+      
+      return `Collected ${actualBlockType} [SIMULATED]`;
     }
   } catch (error) {
     return `Failed to collect ${blockType}: ${error}`;
   }
 }
 
-async function buildShelter(args) {
-  try {
-    // Simulated shelter building
-    console.log('Simulating building a shelter');
-    bot.chat('Building a shelter [SIMULATED]');
-    
-    // Check if we have wood in the inventory - check for logs or planks
-    const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
-    const plankTypes = ['oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks'];
-    
-    let totalWoodCount = 0;
-    
-    // Count logs (each log = 4 planks)
-    for (const logType of logTypes) {
-      const count = state.inventory.items[logType] || 0;
-      totalWoodCount += count * 4; // Each log can make 4 planks
-    }
-    
-    // Count planks
-    for (const plankType of plankTypes) {
-      const count = state.inventory.items[plankType] || 0;
-      totalWoodCount += count;
-    }
-    
-    if (totalWoodCount < 20) {
-      return `Not enough wood to build a shelter (need at least 20 planks, have ${totalWoodCount} planks equivalent)`;
-    }
-    
-    // Building steps (for now just simulate)
-    bot.chat('Step 1: Clearing area [SIMULATED]');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    bot.chat('Step 2: Building floor [SIMULATED]');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    bot.chat('Step 3: Building walls [SIMULATED]');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    bot.chat('Step 4: Building roof [SIMULATED]');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    bot.chat('Step 5: Adding door [SIMULATED]');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    return 'Successfully built a small shelter';
-  } catch (error) {
-    return `Failed to build shelter: ${error}`;
-  }
-}
+// buildShelter function removed - we'll use generateAndExecuteCode instead
