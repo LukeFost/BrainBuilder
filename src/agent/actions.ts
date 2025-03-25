@@ -1,13 +1,21 @@
-import { Action } from './types';
+import { Action, State } from './types'; // Import State
 import * as mineflayer from 'mineflayer';
 import mcData = require('minecraft-data');
 import { goals } from 'mineflayer-pathfinder';
+import { Coder } from './coder'; // Import the Coder class
+import { config } from 'dotenv'; // Import dotenv config to access API key
+
+config(); // Load .env variables
+
+// Keep existing actions...
 
 export const actions: Record<string, Action> = {
+  // ... (keep existing collectBlock, moveToPosition, etc.) ...
+
   collectBlock: {
     name: 'collectBlock',
     description: 'Collect a specific type of block',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const [blockType, countStr] = args;
       const count = parseInt(countStr, 10) || 1; // Currently only collects 1, count isn't used in logic yet
       
@@ -73,7 +81,7 @@ export const actions: Record<string, Action> = {
   moveToPosition: {
     name: 'moveToPosition',
     description: 'Move to a specific position',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const [xStr, yStr, zStr] = args;
       const x = parseFloat(xStr);
       const y = parseFloat(yStr);
@@ -109,7 +117,7 @@ export const actions: Record<string, Action> = {
   craftItem: {
     name: 'craftItem',
     description: 'Craft an item',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const [itemName, countStr] = args;
       const count = parseInt(countStr, 10) || 1;
       
@@ -133,7 +141,7 @@ export const actions: Record<string, Action> = {
   lookAround: {
     name: 'lookAround',
     description: 'Look around and gather information about surroundings',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const nearbyEntities = Object.values(bot.entities)
         .filter((entity: any) => entity.position.distanceTo(bot.entity.position) < 20)
         .map((entity: any) => entity.name || entity.username || entity.type);
@@ -148,7 +156,7 @@ export const actions: Record<string, Action> = {
   attackEntity: {
     name: 'attackEntity',
     description: 'Attack a nearby entity',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const [entityName] = args;
       
       try {
@@ -174,7 +182,7 @@ export const actions: Record<string, Action> = {
   placeBlock: {
     name: 'placeBlock',
     description: 'Place a block at a specific position',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const [blockType, x, y, z] = args;
       const position = { x: parseFloat(x), y: parseFloat(y), z: parseFloat(z) };
       
@@ -213,7 +221,7 @@ export const actions: Record<string, Action> = {
   sleep: {
     name: 'sleep',
     description: 'Sleep in a nearby bed',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       try {
         // Find a bed
         const bed = bot.findBlock({
@@ -238,7 +246,7 @@ export const actions: Record<string, Action> = {
   wakeUp: {
     name: 'wakeUp',
     description: 'Wake up from sleeping',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       try {
         await bot.wake();
         return 'Woke up';
@@ -251,7 +259,7 @@ export const actions: Record<string, Action> = {
   dropItem: {
     name: 'dropItem',
     description: 'Drop items from inventory',
-    execute: async (bot: any, args: string[]) => {
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const [itemName, countStr] = args;
       const count = parseInt(countStr, 10) || 1;
       
@@ -267,5 +275,36 @@ export const actions: Record<string, Action> = {
         return `Failed to drop item: ${error}`;
       }
     }
-  }
+  },
+
+  // --- NEW ACTION ---
+  generateAndExecuteCode: {
+    name: 'generateAndExecuteCode',
+    description: 'Generates and executes JavaScript code using an LLM to perform a complex or novel task described in natural language. Use for tasks not covered by other specific actions. Input args: <task description string>',
+    execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
+      const taskDescription = args.join(' ');
+      if (!taskDescription) {
+        return "Error: No task description provided for code generation.";
+      }
+
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return "Error: OPENAI_API_KEY is not configured. Cannot generate code.";
+      }
+
+      // Instantiate the Coder
+      const coder = new Coder(bot, apiKey);
+
+      try {
+        // Execute the generation and execution loop
+        const result = await coder.generateAndExecute(taskDescription, currentState); // Pass state
+
+        // Return the final result message
+        return result.message;
+      } catch (error: any) {
+        console.error(`[Action:generateAndExecuteCode] Unexpected error: ${error}`);
+        return `Failed to generate or execute code: ${error.message || error}`;
+      }
+    }
+  },
 };

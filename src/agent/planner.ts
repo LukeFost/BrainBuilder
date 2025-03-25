@@ -34,8 +34,9 @@ Available actions:
 - sleep
 - wakeUp
 - dropItem <itemName> <count>
+- generateAndExecuteCode <task description string> (Use for complex/novel tasks not covered by other actions)
 
-Output your plan as a list of steps, one per line.
+Output your plan as a list of steps, one per line. Prefer specific actions when possible. Use generateAndExecuteCode only when necessary.
 `;
 
     const response = await this.model.invoke([
@@ -77,9 +78,16 @@ Output your decision as an action command:
 - sleep
 - wakeUp
 - dropItem <itemName> <count>
+- generateAndExecuteCode <task description string>
 
-Only output the action command, nothing else.
+Output ONLY the single action command to execute next. Prefer specific actions over code generation unless necessary.
 `;
+
+    // If there's a plan, suggest the next step but let the LLM confirm/override
+    let suggestedNext = state.currentPlan && state.currentPlan.length > 0 ? state.currentPlan[0] : '';
+    if (suggestedNext) {
+        prompt += `\nSuggested next step from plan: ${suggestedNext}`;
+    }
 
     const response = await this.model.invoke([
       { role: 'system', content: prompt }

@@ -28,5 +28,8 @@ export interface State {
   export interface Action {
     name: string;
     description: string;
-    execute: (bot: any, args: string[]) => Promise<string>;
+    // Update execute signature to include State
+    execute: (bot: any, args: string[], currentState: State) => Promise<string>;
   }
+
+  // ... rest of the file remains the same

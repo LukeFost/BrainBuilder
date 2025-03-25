@@ -327,8 +327,9 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
   if (actions[actionName]) {
     try {
       console.log(`Executing action: ${actionName} with args: ${args.join(', ')}`);
-      const result = await actions[actionName].execute(bot, args);
-      
+      // *** PASS currentState to execute ***
+      const result = await actions[actionName].execute(bot, args, currentState);
+
       // Update memory with action result
       memoryManager.addToShortTerm(`Action: ${actionToPerform} - Result: ${result}`);
 
