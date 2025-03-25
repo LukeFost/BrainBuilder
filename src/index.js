@@ -1,6 +1,7 @@
 const mineflayer = require('mineflayer');
 const dotenv = require('dotenv');
 const { ChatOpenAI } = require('@langchain/openai');
+const { SkillRepository } = require('./agent/skills/skillRepository.js'); // Import SkillRepository
 
 // Load environment variables
 dotenv.config();
@@ -341,6 +342,14 @@ async function createPlan() {
         failureContext = `\nIMPORTANT CONTEXT: Your previous action likely failed or was insufficient. The result was: "${state.lastActionResult}". Create a new plan that addresses this issue (e.g., collect missing resources *before* trying to craft/build, find a different location if blocks weren't found, craft a crafting table if needed). Do not simply repeat the failed action immediately.`;
     }
 
+    // Get available skills for the prompt
+    const availableSkills = skillRepository.getAllSkills();
+    let skillsPromptSection = '';
+    if (availableSkills.length > 0) {
+        skillsPromptSection = `\nAvailable Skills (Use with 'executeSkill <skillName> [args...]'):\n`;
+        skillsPromptSection += availableSkills.map(s => `- ${s.name}(${s.parameters.join(', ')}): ${s.description}`).join('\n');
+    }
+
     const prompt = `
 You are a helpful and resourceful Minecraft agent. Your primary goal is to survive, explore, gather resources, build, and achieve tasks set by the user or your own long-term goals.
 
@@ -365,6 +374,7 @@ Available Actions:
 - attackEntity <entity_name>: Attack a nearby entity (e.g., 'attackEntity zombie').
 - generateAndExecuteCode <task_description>: For complex or novel tasks not covered by other actions. Describe the task clearly (e.g., "generateAndExecuteCode Build a simple 4x4 shelter using oak_planks near 100, 64, 200"). Requires materials! Use specific actions first if possible.
 - askForHelp <question>: Ask the user (player) a question via chat if you are stuck, the goal is unclear, you lack resources after trying, or need guidance. (e.g., "askForHelp I need 5 oak logs but can't find any oak trees, where should I look?", "askForHelp What kind of house should I build?").
+${skillsPromptSection} {/* Add skills section here */}
 
 Planning Guidelines:
 1.  Break down the goal into small, achievable steps using the available actions.
@@ -372,7 +382,8 @@ Planning Guidelines:
 3.  If the previous action failed due to missing resources/items, the FIRST step of the new plan should usually be to acquire them (e.g., 'collectBlock' or 'craftItem').
 4.  If the goal is vague (like 'explore'), plan actions like 'lookAround' and 'moveToPosition' to nearby interesting areas or in a consistent direction for a short distance.
 5.  If you are genuinely stuck after trying, or the goal requires clarification, use 'askForHelp'. Don't get stuck in loops.
-6.  Output ONLY the list of actions, one action per line. Do not add explanations or numbering.
+6.  You can use 'executeSkill' to perform complex actions defined in the skills library. Pass arguments as needed.
+7.  Output ONLY the list of actions, one action per line. Do not add explanations or numbering.
 
 Plan:`; // Added 'Plan:' label for clarity
 
@@ -492,8 +503,8 @@ async function act() {
              result = "Error: OPENAI_API_KEY not configured for code generation.";
         } else {
             // Dynamically require Coder only when needed
-            // Ensure the path is correct relative to index.js
-            const { Coder } = require('./agent/coder');
+            // Assuming execution from dist/, the path relative to dist/index.js is ./agent/coder.js
+            const { Coder } = require('./agent/coder.js'); // Use .js extension and relative path from dist/
             const coder = new Coder(bot, process.env.OPENAI_API_KEY);
             const codeResult = await coder.generateAndExecute(taskDescription, state); // Pass current state
             result = codeResult.message; // Use the message from the coder result
@@ -502,9 +513,75 @@ async function act() {
         result = `Failed to execute generated code: ${error.message || error}`;
         console.error("[Act:generateAndExecuteCode]", result);
       }
+    // --- Add placeBlock handler ---
+    } else if (actionName === 'placeBlock') {
+        result = await placeBlock(args);
+    // --- End placeBlock handler ---
+    // --- Add executeSkill handler ---
+    } else if (actionName === 'executeSkill') {
+        const skillName = args[0];
+        const skillArgs = args.slice(1);
+        const skill = skillRepository.getSkill(skillName);
+
+        if (!skill) {
+            result = `Error: Skill "${skillName}" not found in the library.`;
+        } else {
+            console.log(`[Act] Executing skill: ${skillName} with args: ${skillArgs.join(', ')}`);
+            // Prepare code for Coder (wrap in main function, pass args)
+            const skillCodeForCoder = `
+    // Skill: ${skill.name}
+    // Description: ${skill.description}
+    async function main(bot, log, Vec3, skillArgs) {
+      log(bot, "Executing skill: ${skill.name}");
+      try {
+        // Make skillArgs available to the skill's code
+        // Parameters defined in skill.parameters should map to skillArgs array
+        ${skill.parameters.map((param, index) => `const ${param} = skillArgs[${index}];`).join('\n        ')}
+
+        // --- Skill Code Start ---
+        ${skill.code}
+        // --- Skill Code End ---
+
+        // Skills should ideally return a result string
+        // If the skill code doesn't return, provide a default success message
+        // Example: return "Skill ${skill.name} completed successfully.";
+      } catch (error) {
+        log(bot, 'Skill Execution Error (${skill.name}):', error.message || error);
+        return 'Skill "${skill.name}" failed: ' + (error.message || error);
+      }
     }
-    // Add other actions like placeBlock, attackEntity etc. if needed here
-    // else if (actionName === 'placeBlock') { result = await placeBlock(args); }
+    module.exports = main;`;
+
+            // Use the Coder to execute this wrapped code
+            const apiKey = process.env.OPENAI_API_KEY;
+            if (!apiKey) {
+                 result = "Error: OPENAI_API_KEY is not configured. Cannot execute skill via Coder.";
+            } else {
+                try {
+                    // --- Coder Execution Placeholder ---
+                    // This requires adapting the Coder class to accept raw code + args,
+                    // or using a direct SES execution approach (less safe).
+                    // For now, we log and return a placeholder message.
+                    console.warn(`[Act] Skill execution via Coder needs implementation. Simulating call for ${skillName}.`);
+                    result = `Attempted to execute skill "${skillName}" (implementation pending). Code:\n${skill.code}`;
+                    // --- End Placeholder ---
+
+                    /* // Ideal Coder usage (if Coder is adapted):
+                    const { Coder } = require('./agent/coder.js');
+                    const coder = new Coder(bot, apiKey);
+                    // Assume coder.executeCode(code, args) exists
+                    const execResult = await coder.executeCode(skillCodeForCoder, skillArgs);
+                    result = execResult.message;
+                    */
+
+                } catch (error) {
+                    result = `Failed to initiate skill execution for "${skillName}": ${error.message || error}`;
+                    console.error(`[Act:executeSkill] ${result}`);
+                }
+            }
+        }
+    // --- End executeSkill handler ---
+    // Add other actions like attackEntity etc. if needed here
     // else if (actionName === 'attackEntity') { result = await attackEntity(args); }
     else {
       console.log(`[Act] Action ${actionName} not implemented in act() function.`);
@@ -794,6 +871,91 @@ async function collectBlock(args) {
     // Return message indicating partial success/failure
     return `${errorMsg} (Collected ${collectedCount}/${count})`;
   }
+}
+
+async function placeBlock(args) {
+    const [blockType, xStr, yStr, zStr] = args;
+    const targetPos = { x: parseFloat(xStr), y: parseFloat(yStr), z: parseFloat(zStr) };
+
+    if (isNaN(targetPos.x) || isNaN(targetPos.y) || isNaN(targetPos.z)) {
+        return `Invalid coordinates for placeBlock: ${args.join(', ')}`;
+    }
+
+    console.log(`[Action:placeBlock] Request to place ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`);
+
+    // Check if pathfinder is available (needed for movement and potentially finding reference)
+    if (!bot.pathfinder) {
+        // Simulate placement if pathfinder is not available
+        console.log(`[Action:placeBlock] Simulating placement of ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`);
+        bot.chat(`Placing ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z}) [SIMULATED]`);
+        // Update inventory (decrement count) - important for planning even in simulation
+        state.inventory.items[blockType] = (state.inventory.items[blockType] || 0) - 1;
+        if (state.inventory.items[blockType] <= 0) {
+            delete state.inventory.items[blockType];
+        }
+        return `Placed ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z}) [SIMULATED]`;
+        // return `Cannot execute placeBlock: Pathfinder not available.`; // Alternative: return error if simulation not desired
+    }
+
+    try {
+        const mcData = require('minecraft-data')(bot.version);
+        const pathfinder = require('mineflayer-pathfinder'); // Ensure pathfinder is required
+        const { Vec3 } = require('vec3'); // Required for vector math
+
+        // 1. Check inventory
+        const itemInInventory = bot.inventory.items().find(item => item.name === blockType);
+        if (!itemInInventory) {
+            return `Cannot place ${blockType}: Not found in inventory.`;
+        }
+
+        // 2. Find a reference block and face vector
+        // Strategy: Try placing on the block directly below the target position.
+        const referenceBlockPos = new Vec3(targetPos.x, targetPos.y - 1, targetPos.z);
+        const referenceBlock = bot.blockAt(referenceBlockPos);
+
+        if (!referenceBlock || referenceBlock.name === 'air') {
+            // Add more sophisticated reference block finding later if needed (e.g., adjacent blocks)
+            return `Cannot place ${blockType}: No solid block found below target position (${referenceBlockPos.x}, ${referenceBlockPos.y}, ${referenceBlockPos.z}) to place against.`;
+        }
+
+        // The face vector points from the reference block towards the target block.
+        // If placing on top, the face vector is (0, 1, 0).
+        const faceVector = new Vec3(0, 1, 0); // Assuming placing on top of the block below
+
+        // 3. Move near the placement location (optional but good practice)
+        // Goal is to be within reach of the *reference* block
+        const goal = new pathfinder.goals.GoalNear(referenceBlockPos.x, referenceBlockPos.y, referenceBlockPos.z, 3); // Get within 3 blocks
+        console.log(`[Action:placeBlock] Moving near reference block at ${referenceBlockPos}`);
+        await bot.pathfinder.goto(goal);
+        console.log(`[Action:placeBlock] Reached near reference block.`);
+
+        // 4. Equip the block
+        console.log(`[Action:placeBlock] Equipping ${itemInInventory.name}`);
+        await bot.equip(itemInInventory, 'hand');
+
+        // 5. Place the block
+        console.log(`[Action:placeBlock] Placing ${blockType} against ${referenceBlock.name} at ${referenceBlockPos} (face: ${faceVector})`);
+        // Ensure the target position is passed correctly if needed by the API version,
+        // but typically placeBlock uses reference block and face vector.
+        await bot.placeBlock(referenceBlock, faceVector);
+
+        // Update state inventory (decrement count) - important for planning
+        state.inventory.items[blockType] = (state.inventory.items[blockType] || 0) - 1;
+        if (state.inventory.items[blockType] <= 0) {
+            delete state.inventory.items[blockType];
+        }
+
+        return `Placed ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`;
+
+    } catch (error) {
+        const errorMsg = `Failed to place ${blockType}: ${error.message || error}`;
+        console.error(`[Action:placeBlock] ${errorMsg}`);
+        // Attempt to provide more context if it's a placement error
+        if (error.message && error.message.includes('Cannot place block')) {
+             return `Failed to place ${blockType}: Placement obstructed or too far? (${error.message})`;
+        }
+        return errorMsg;
+    }
 }
 
 // buildShelter function removed - we'll use generateAndExecuteCode instead
