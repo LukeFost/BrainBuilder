@@ -1,6 +1,7 @@
 import { Action, State } from './types';
 import * as mineflayer from 'mineflayer';
-import mcData from 'minecraft-data';
+import * as mcDataModule from 'minecraft-data';
+const mcData = mcDataModule.default || mcDataModule;
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder'; // Import goals with alias
 import { Vec3 } from 'vec3'; // Import Vec3
 import { Coder } from './coder';
@@ -25,7 +26,7 @@ export const actions: Record<string, Action> = {
       let actualBlockTypeForCheck = blockType;
       // Handle common block name variations for the check
       if (blockType === 'wood' || blockType === 'log') {
-          const dataForVersionCheck = mcData(bot.version);
+          const dataForVersionCheck = mcData(bot.version as string);
           const logTypesCheck = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
           for (const logType of logTypesCheck) {
               if (dataForVersionCheck.blocksByName[logType]) {
@@ -72,7 +73,7 @@ export const actions: Record<string, Action> = {
 
       // Real mode with pathfinder
       try {
-        const dataForVersion = mcData(bot.version);
+        const dataForVersion = mcData(bot.version as string);
 
         // Handle common block name variations
         let actualBlockType = blockType;
@@ -199,7 +200,7 @@ export const actions: Record<string, Action> = {
       console.log(`[Action:craftItem] Attempting to craft ${count} ${itemName}`);
 
       try {
-        const dataForVersion = mcData(bot.version);
+        const dataForVersion = mcData(bot.version as string);
         const itemToCraft = dataForVersion.itemsByName[itemName];
 
         if (!itemToCraft) return `Item '${itemName}' not found in minecraft-data`;

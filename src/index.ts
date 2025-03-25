@@ -1,6 +1,7 @@
 import * as mineflayer from 'mineflayer';
 import * as dotenv from 'dotenv';
-import mcData from 'minecraft-data';
+import * as mcDataModule from 'minecraft-data';
+const mcData = mcDataModule.default || mcDataModule;
 import * as pathfinder from 'mineflayer-pathfinder';
 import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages"; // Although not used yet, good to have for potential future message passing
@@ -124,7 +125,7 @@ bot.once('spawn', async () => { // Add async here
   try {
     // Initialize pathfinder plugin
     bot.loadPlugin(pathfinder.pathfinder);
-    const mcDataInstance = mcData(bot.version);
+    const mcDataInstance = mcData(bot.version as string);
     const defaultMove = new pathfinder.Movements(bot);
     // Configure movements (optional, customize as needed)
     defaultMove.allowSprinting = true;
@@ -346,11 +347,11 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
   const actionName = parts[0];
   const args = parts.slice(1).map(arg => arg.replace(/^"|"$/g, '')); // Remove surrounding quotes
   // Execute action
-  if (actions[actionName]) {
+  if (actionName && actions[actionName]) {
     try {
       console.log(`Executing action: ${actionName} with args: ${args.join(', ')}`);
       // *** PASS currentState to execute ***
-      const result = await actions[actionName].execute(bot, args, currentState);
+      const result = await actions[actionName!].execute(bot, args, currentState);
 
       // Update memory with action result
       await memoryManager.addToShortTerm(`Action: ${actionToPerform} - Result: ${result}`); // Add await
