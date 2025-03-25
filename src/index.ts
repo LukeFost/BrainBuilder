@@ -112,9 +112,13 @@ const state: State = {
 };
 
 // Bot event handlers
-bot.once('spawn', () => {
+bot.once('spawn', async () => { // Add async here
   console.log('Bot has spawned');
-  
+
+  // Initialize memory manager (load from file if exists)
+  await memoryManager.initialize();
+  console.log("MemoryManager initialized.");
+
   let pathfinderInitialized = false;
   try {
     // Initialize pathfinder plugin
