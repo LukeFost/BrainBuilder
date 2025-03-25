@@ -40,35 +40,51 @@ const state: State = {
 bot.once('spawn', () => {
   console.log('Bot has spawned');
   
+  let pathfinderInitialized = false;
   try {
     // Initialize pathfinder plugin
     bot.loadPlugin(pathfinder.pathfinder);
     const mcDataInstance = mcData(bot.version);
     const defaultMove = new pathfinder.Movements(bot, mcDataInstance);
-    
+    // Configure movements (optional, customize as needed)
+    defaultMove.allowSprinting = true;
+    defaultMove.canDig = true; // Allow breaking blocks if necessary for pathing
     bot.pathfinder.setMovements(defaultMove);
-    console.log('Pathfinder initialized successfully');
+    console.log('Pathfinder initialized successfully.');
+    pathfinderInitialized = true;
   } catch (error) {
-    console.error('Error initializing pathfinder:', error);
+    console.error('CRITICAL: Error initializing pathfinder plugin:', error);
+    console.error('Movement capabilities will be severely limited or non-functional.');
+    // Optional: Decide if the bot should stop or continue with limited function
+    // For now, we'll let it continue but log the error clearly.
   }
   
-  // Start the agent loop
-  startAgentLoop();
+  // Start the agent loop only if critical components like pathfinder are ready (or handle failure)
+  if (pathfinderInitialized) {
+    startAgentLoop();
+  } else {
+    console.error("Agent loop not started due to pathfinder initialization failure.");
+    bot.chat("I cannot move properly. Pathfinder failed to load.");
+  }
 });
 
 bot.on('chat', (username, message) => {
   // Handle commands from chat
+  console.log(`[Chat] Received message from ${username}: "${message}"`); 
   if (username === bot.username) return;
   
+  console.log(`[Chat] Processing command from ${username}.`);
   if (message.startsWith('goal ')) {
     const newGoal = message.slice(5);
     state.currentGoal = newGoal;
     state.currentPlan = undefined;
     bot.chat(`New goal set: ${newGoal}`);
     memoryManager.addToShortTerm(`Player ${username} set a new goal: ${newGoal}`);
+    console.log(`[Chat] New goal set by ${username}: ${newGoal}`);
   } else if (message === 'status') {
     const status = `Goal: ${state.currentGoal || 'None'}\nPlan: ${state.currentPlan?.join(', ') || 'None'}\nLast action: ${state.lastAction || 'None'}\nResult: ${state.lastActionResult || 'None'}`;
     bot.chat(status);
+    console.log(`[Chat] Sending status to ${username}.`);
   } else if (message === 'memory') {
     bot.chat(`Short-term memory: ${memoryManager.shortTerm.join(', ')}`);
     bot.chat(`Long-term memory summary available`);
@@ -183,17 +199,53 @@ async function observe() {
 
 // Think function
 async function think() {
-  // If no plan or plan is completed, create a new one
+  let needsNewPlan = false;
+  
+  // Reason 1: No plan exists or current plan is completed
   if (!state.currentPlan || state.currentPlan.length === 0) {
-    console.log("Creating new plan...");
-    const plan = await planner.createPlan(state, state.currentGoal || 'Explore and survive');
-    state.currentPlan = plan;
-    return;
+    console.log("Reason for new plan: No current plan or plan completed.");
+    needsNewPlan = true;
   }
   
-  // Decide next action
+  // Reason 2: Last action failed significantly (customize condition as needed)
+  if (state.lastActionResult && state.lastActionResult.toLowerCase().includes('failed')) {
+    console.log(`Reason for considering new plan: Last action failed - "${state.lastActionResult}"`);
+    // Simple strategy: Always replan on failure. More complex logic could be added.
+    needsNewPlan = true; 
+  }
+  
+  // Reason 3: The executed action didn't match the plan step (handled in act, but could trigger replan here too)
+  // if (state.lastAction && state.currentPlan && state.currentPlan.length > 0 && state.lastAction !== state.currentPlan[0]) {
+  //    console.log("Reason for considering new plan: Action deviated from plan.");
+  //    needsNewPlan = true; 
+  // }
+  
+  if (needsNewPlan && state.currentGoal) {
+    console.log("Creating new plan...");
+    try {
+      const plan = await planner.createPlan(state, state.currentGoal);
+      state.currentPlan = plan;
+      console.log("New plan created:", plan);
+      // If a new plan was made, decide the first action from it
+      if (state.currentPlan && state.currentPlan.length > 0) {
+        state.lastAction = state.currentPlan[0];
+        console.log(`Next action from new plan: ${state.lastAction}`);
+      } else {
+        console.log("New plan is empty, deciding fallback action.");
+        state.lastAction = await planner.decideNextAction(state); // Fallback if plan is empty
+      }
+    } catch (error) {
+      console.error("Error creating new plan:", error);
+      state.lastAction = 'lookAround'; // Fallback action on planning error
+    }
+    return; // Exit think() after attempting to create a new plan
+  }
+  
+  // If no new plan is needed, decide the next action based on the current state/plan
+  console.log("Continuing with existing plan or deciding next action.");
   const nextAction = await planner.decideNextAction(state);
   state.lastAction = nextAction;
+  console.log(`Decided next action: ${state.lastAction}`);
 }
 
 // Act function
@@ -217,10 +269,14 @@ async function act() {
       // Update memory with action result
       memoryManager.addToShortTerm(`Action: ${state.lastAction} - Result: ${result}`);
       
-      // If this was from a plan, remove it from the plan
-      if (state.currentPlan && state.currentPlan.length > 0 && 
-          state.currentPlan[0].startsWith(actionName)) {
+      // If the executed action matches the first step of the plan, remove it
+      if (state.currentPlan && state.currentPlan.length > 0 &&
+          state.currentPlan[0] === state.lastAction) {
+        console.log(`Completed plan step: ${state.currentPlan[0]}`);
         state.currentPlan = state.currentPlan.slice(1);
+      } else if (state.currentPlan && state.currentPlan.length > 0) {
+        console.log(`Executed action "${state.lastAction}" does not match current plan step "${state.currentPlan[0]}". Plan may need revision.`);
+        // Consider adding logic here to potentially invalidate the plan if the mismatch persists
       }
       
       state.lastActionResult = result;

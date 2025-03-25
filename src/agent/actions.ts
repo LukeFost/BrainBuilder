@@ -9,28 +9,63 @@ export const actions: Record<string, Action> = {
     description: 'Collect a specific type of block',
     execute: async (bot: any, args: string[]) => {
       const [blockType, countStr] = args;
-      const count = parseInt(countStr, 10) || 1;
+      const count = parseInt(countStr, 10) || 1; // Currently only collects 1, count isn't used in logic yet
+      
+      console.log(`[Action:collectBlock] Request to collect ${count} ${blockType}`);
       
       try {
-        const pathfinder = bot.pathfinder;
-        const dataForVersion = mcData(bot.version);
-        const blockId = dataForVersion.blocksByName[blockType]?.id;
+        const pathfinder = bot.pathfinder; // Ensure pathfinder is available
+        if (!pathfinder) {
+          const errorMsg = "Pathfinder plugin not available for collectBlock.";
+          console.error(`[Action:collectBlock] ${errorMsg}`);
+          return errorMsg;
+        }
         
-        if (!blockId) return `Block ${blockType} not found`;
+        const dataForVersion = mcData(bot.version);
+        const blockData = dataForVersion.blocksByName[blockType]; // Use blockData instead of blockId directly
+        
+        if (!blockData) {
+          const errorMsg = `Block type '${blockType}' not found in Minecraft data for version ${bot.version}`;
+          console.error(`[Action:collectBlock] ${errorMsg}`);
+          return errorMsg;
+        }
+        const blockId = blockData.id;
+        console.log(`[Action:collectBlock] Searching for block '${blockType}' (ID: ${blockId})`);
         
         const block = bot.findBlock({
           matching: blockId,
-          maxDistance: 32
+          maxDistance: 32,
+          useExtraInfo: true // May help find blocks slightly better
         });
         
-        if (!block) return `Could not find ${blockType} nearby`;
+        if (!block) {
+          const message = `Could not find ${blockType} nearby within 32 blocks.`;
+          console.log(`[Action:collectBlock] ${message}`);
+          return message;
+        }
         
-        await bot.pathfinder.goto(block.position);
+        console.log(`[Action:collectBlock] Found ${blockType} at (${block.position.x}, ${block.position.y}, ${block.position.z}). Moving to it.`);
+        // Create a goal to get near the block to mine it
+        const goal = new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z);
+        
+        await bot.pathfinder.goto(goal);
+        console.log(`[Action:collectBlock] Reached block. Attempting to dig.`);
+        
+        // Ensure the bot has the right tool equipped (optional but good)
+        const bestTool = pathfinder.bestHarvestTool(block);
+        if (bestTool) {
+          console.log(`[Action:collectBlock] Equipping best tool: ${bestTool.name}`);
+          await bot.equip(bestTool, 'hand');
+        }
+        
         await bot.dig(block);
         
+        console.log(`[Action:collectBlock] Successfully collected ${blockType}.`);
         return `Collected ${blockType}`;
-      } catch (error) {
-        return `Failed to collect ${blockType}: ${error}`;
+      } catch (error: any) {
+        const errorMsg = `Failed to collect ${blockType}: ${error.message || error}`;
+        console.error(`[Action:collectBlock] ${errorMsg}`);
+        return errorMsg;
       }
     }
   },
@@ -39,13 +74,34 @@ export const actions: Record<string, Action> = {
     name: 'moveToPosition',
     description: 'Move to a specific position',
     execute: async (bot: any, args: string[]) => {
-      const [x, y, z] = args.map(arg => parseFloat(arg));
+      const [xStr, yStr, zStr] = args;
+      const x = parseFloat(xStr);
+      const y = parseFloat(yStr);
+      const z = parseFloat(zStr);
+      
+      if (isNaN(x) || isNaN(y) || isNaN(z)) {
+        const errorMsg = `Invalid coordinates provided: (${xStr}, ${yStr}, ${zStr})`;
+        console.error(`[Action:moveToPosition] ${errorMsg}`);
+        return errorMsg;
+      }
+      
+      const target = new goals.GoalBlock(x, y, z); // Or GoalNear if appropriate
+      console.log(`[Action:moveToPosition] Attempting to move to (${x}, ${y}, ${z})`);
       
       try {
-        await bot.pathfinder.goto({ x, y, z });
+        // Optional: Add event listener for path calculation status
+        // bot.pathfinder.once('path_update', (results) => {
+        //   console.log(`[Action:moveToPosition] Path update: ${results.status}`);
+        // });
+        
+        await bot.pathfinder.goto(target);
+        
+        console.log(`[Action:moveToPosition] Successfully reached or got close to (${x}, ${y}, ${z})`);
         return `Moved to position (${x}, ${y}, ${z})`;
-      } catch (error) {
-        return `Failed to move to position: ${error}`;
+      } catch (error: any) {
+        const errorMsg = `Failed to move to position (${x}, ${y}, ${z}): ${error.message || error}`;
+        console.error(`[Action:moveToPosition] ${errorMsg}`);
+        return errorMsg;
       }
     }
   },
