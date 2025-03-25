@@ -16,6 +16,8 @@ export class Planner {
     const prompt = `
 You are a Minecraft agent tasked with creating a plan to achieve a goal.
 
+Current Health: ${state.surroundings.health}
+Current Hunger: ${state.surroundings.food}
 Current inventory: ${JSON.stringify(state.inventory)}
 Current surroundings: ${JSON.stringify(state.surroundings)}
 Short-term memory: ${state.memory.shortTerm.join('\n')}
@@ -53,6 +55,8 @@ Output your plan as a list of steps, one per line. Prefer specific actions when 
     let prompt = `
 You are a Minecraft agent deciding what to do next.
 
+Current Health: ${state.surroundings.health}
+Current Hunger: ${state.surroundings.food}
 Current inventory: ${JSON.stringify(state.inventory)}
 Current surroundings: ${JSON.stringify(state.surroundings)}
 Short-term memory: ${state.memory.shortTerm.join('\n')}

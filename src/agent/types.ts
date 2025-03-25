@@ -23,8 +23,10 @@ export interface State {
     position: { x: number; y: number; z: number };
     dayTime?: string;
     biome?: string;
+    health?: number; // Add health
+    food?: number;   // Add food/hunger
   }
-  
+
   export interface Action {
     name: string;
     description: string;

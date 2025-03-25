@@ -62,27 +62,32 @@ module.exports = main; // Use module.exports for SES compatibility
     this.eslint = new ESLint({
         useEslintrc: false, // Don't look for .eslintrc files
         overrideConfig: {
-            languageOptions: {
+            // Use older ESLint config format for programmatic API compatibility
+            parserOptions: {
                 ecmaVersion: 2021,
                 sourceType: "module", // Or "commonjs" if your template uses require
-                globals: {
-                    // Define globals available in the sandbox
-                    bot: 'readonly',
-                    log: 'readonly',
-                    Vec3: 'readonly',
-                    require: 'readonly', // If using require in template/sandbox
-                    module: 'readonly', // If using module.exports
-                    console: 'readonly', // Allow console if needed, though safeLog is preferred
-                    setTimeout: 'readonly', // Allow setTimeout if needed
-                    Promise: 'readonly',
-                    async: 'readonly', // Not a real global, but helps some linting rules
-                    await: 'readonly', // Not a real global
-                }
+            },
+            env: {
+                es2021: true,
+                node: false // Don't assume full Node.js environment in sandbox
+            },
+            globals: {
+                // Define globals available in the sandbox
+                bot: 'readonly',
+                log: 'readonly',
+                Vec3: 'readonly',
+                require: 'readonly', // If using require in template/sandbox
+                module: 'readonly', // If using module.exports
+                console: 'readonly', // Allow console if needed, though safeLog is preferred
+                setTimeout: 'readonly', // Allow setTimeout if needed
+                Promise: 'readonly',
+                // async/await are keywords, not globals
+                globalThis: 'readonly', // Allow access to the sandboxed globalThis
             },
             rules: {
                 // Add specific rules if needed, e.g., 'no-undef' is important
                 'no-undef': 'error',
-                'no-unused-vars': ['warn', { 'argsIgnorePattern': '^_' }], // Warn about unused vars
+                'no-unused-vars': ['warn', { 'argsIgnorePattern': '^_|bot|log|Vec3|require|module|globalThis' }], // Ignore specific globals
                 // Add more rules as desired
             }
         }

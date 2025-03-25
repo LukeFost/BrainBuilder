@@ -1,6 +1,6 @@
 import { Action, State } from './types';
 import * as mineflayer from 'mineflayer';
-import mcData = require('minecraft-data');
+import mcData from 'minecraft-data';
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder'; // Import goals with alias
 import { Vec3 } from 'vec3'; // Import Vec3
 import { Coder } from './coder';

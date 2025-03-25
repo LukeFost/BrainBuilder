@@ -1,6 +1,6 @@
 import * as mineflayer from 'mineflayer';
 import * as dotenv from 'dotenv';
-import mcData = require('minecraft-data');
+import mcData from 'minecraft-data';
 import * as pathfinder from 'mineflayer-pathfinder';
 import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages"; // Although not used yet, good to have for potential future message passing
@@ -247,8 +247,12 @@ async function observeNode(currentState: GraphState): Promise<Partial<GraphState
       x: position.x,
       y: position.y,
       z: position.z
-    }
+    },
+    health: bot.health, // Read health
+    food: bot.food      // Read food
   };
+
+  // TODO: Integrate prismarine-viewer for visual input (requires significant setup)
 
   // Return the updated parts of the state
   return {
@@ -337,10 +341,10 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
     return { lastActionResult: "No action to perform" };
   }
 
-  // Parse action and arguments
-  const parts = actionToPerform.split(' ');
+  // Parse action and arguments, removing potential quotes around args
+  const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || []; // Split by space, respecting quotes
   const actionName = parts[0];
-  const args = parts.slice(1);
+  const args = parts.slice(1).map(arg => arg.replace(/^"|"$/g, '')); // Remove surrounding quotes
   // Execute action
   if (actions[actionName]) {
     try {
@@ -349,7 +353,7 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
       const result = await actions[actionName].execute(bot, args, currentState);
 
       // Update memory with action result
-      memoryManager.addToShortTerm(`Action: ${actionToPerform} - Result: ${result}`);
+      await memoryManager.addToShortTerm(`Action: ${actionToPerform} - Result: ${result}`); // Add await
 
       let updatedPlan = currentState.currentPlan;
       // Clean the current plan step for comparison
@@ -375,7 +379,7 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
     } catch (error: any) {
       const errorMsg = `Failed to execute ${actionName}: ${error.message || error}`;
       console.error(`[ActNode] ${errorMsg}`);
-      memoryManager.addToShortTerm(errorMsg);
+      await memoryManager.addToShortTerm(errorMsg); // Add await
       // Return failure result and updated memory
       return {
         lastActionResult: errorMsg,
@@ -385,7 +389,7 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
   } else {
     const errorMsg = `Unknown action: ${actionName}`;
     console.error(`[ActNode] ${errorMsg}`);
-    memoryManager.addToShortTerm(errorMsg);
+    await memoryManager.addToShortTerm(errorMsg); // Add await
     // Return unknown action result and updated memory
     return {
       lastActionResult: errorMsg,
