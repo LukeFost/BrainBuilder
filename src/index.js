@@ -49,6 +49,10 @@ const openai = new ChatOpenAI({
   temperature: 0.2,
 });
 
+// Import actions (assuming compiled to JS)
+const { actions } = require('./agent/actions.js');
+
+
 // Bot event handlers
 bot.once('spawn', async () => { // Make spawn handler async
   console.log('Bot has spawned');
