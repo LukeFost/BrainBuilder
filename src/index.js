@@ -474,10 +474,26 @@ async function buildShelter(args) {
     console.log('Simulating building a shelter');
     bot.chat('Building a shelter [SIMULATED]');
     
-    // Check if we have wood in the inventory
-    const woodCount = currentState.inventory.items['oak_planks'] || 0;
-    if (woodCount < 20) {
-      return 'Not enough wood to build a shelter (need at least 20)';
+    // Check if we have wood in the inventory - check for logs or planks
+    const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+    const plankTypes = ['oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks'];
+    
+    let totalWoodCount = 0;
+    
+    // Count logs (each log = 4 planks)
+    for (const logType of logTypes) {
+      const count = state.inventory.items[logType] || 0;
+      totalWoodCount += count * 4; // Each log can make 4 planks
+    }
+    
+    // Count planks
+    for (const plankType of plankTypes) {
+      const count = state.inventory.items[plankType] || 0;
+      totalWoodCount += count;
+    }
+    
+    if (totalWoodCount < 20) {
+      return `Not enough wood to build a shelter (need at least 20 planks, have ${totalWoodCount} planks equivalent)`;
     }
     
     // Building steps (for now just simulate)
