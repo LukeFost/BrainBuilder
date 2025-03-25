@@ -1,7 +1,15 @@
 import * as mineflayer from 'mineflayer';
 import * as dotenv from 'dotenv';
 import * as mcDataModule from 'minecraft-data';
-const mcData = mcDataModule.default || mcDataModule;
+// Handle both CommonJS and ES module versions of minecraft-data
+const mcData = (version: string) => {
+  if (typeof mcDataModule === 'function') {
+    return mcDataModule(version);
+  } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
+    return mcDataModule.default(version);
+  }
+  throw new Error('Unable to initialize minecraft-data properly');
+};
 import * as pathfinder from 'mineflayer-pathfinder';
 import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages"; // Although not used yet, good to have for potential future message passing

@@ -1,7 +1,15 @@
 import { Action, State } from './types';
 import * as mineflayer from 'mineflayer';
 import * as mcDataModule from 'minecraft-data';
-const mcData = mcDataModule.default || mcDataModule;
+// Handle both CommonJS and ES module versions of minecraft-data
+const mcData = (version: string) => {
+  if (typeof mcDataModule === 'function') {
+    return mcDataModule(version);
+  } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
+    return mcDataModule.default(version);
+  }
+  throw new Error('Unable to initialize minecraft-data properly');
+};
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder'; // Import goals with alias
 import { Vec3 } from 'vec3'; // Import Vec3
 import { Coder } from './coder';
