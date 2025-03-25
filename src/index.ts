@@ -260,14 +260,22 @@ async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>>
   let needsNewPlan = false;
   let nextAction: string | undefined = undefined;
 
+  // Use the critic to evaluate if we need to replan
+  const { Critic } = require('./agent/critic');
+  const critic = new Critic();
+  const evaluation = critic.evaluate(currentState);
+  
+  if (evaluation.needsReplanning) {
+    console.log(`Critic suggests replanning: ${evaluation.reason}`);
+    needsNewPlan = true;
+  }
   // Reason 1: No plan exists or current plan is completed
-  if (!currentState.currentPlan || currentState.currentPlan.length === 0) {
+  else if (!currentState.currentPlan || currentState.currentPlan.length === 0) {
     console.log("Reason for new plan: No current plan or plan completed.");
     needsNewPlan = true;
   }
-
   // Reason 2: Last action failed significantly (customize condition as needed)
-  if (currentState.lastActionResult && currentState.lastActionResult.toLowerCase().includes('failed')) {
+  else if (currentState.lastActionResult && currentState.lastActionResult.toLowerCase().includes('failed')) {
     console.log(`Reason for considering new plan: Last action failed - "${currentState.lastActionResult}"`);
     // Simple strategy: Always replan on failure. More complex logic could be added.
     needsNewPlan = true;

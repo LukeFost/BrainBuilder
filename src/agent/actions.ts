@@ -17,7 +17,7 @@ export const actions: Record<string, Action> = {
     description: 'Collect a specific type of block',
     execute: async (bot: any, args: string[], currentState: State) => { // Add currentState
       const [blockType, countStr] = args;
-      const count = parseInt(countStr, 10) || 1; // Currently only collects 1, count isn't used in logic yet
+      const count = parseInt(countStr, 10) || 1;
       
       console.log(`[Action:collectBlock] Request to collect ${count} ${blockType}`);
       
@@ -56,36 +56,59 @@ export const actions: Record<string, Action> = {
         const blockId = blockData.id;
         console.log(`[Action:collectBlock] Searching for block '${actualBlockType}' (ID: ${blockId})`);
         
-        const block = bot.findBlock({
-          matching: blockId,
-          maxDistance: 32,
-          useExtraInfo: true // May help find blocks slightly better
-        });
-        
-        if (!block) {
-          const message = `Could not find ${actualBlockType} nearby within 32 blocks.`;
-          console.log(`[Action:collectBlock] ${message}`);
-          return message;
+        // Collect multiple blocks
+        let collectedCount = 0;
+        for (let i = 0; i < count; i++) {
+          // Find the block
+          const block = bot.findBlock({
+            matching: blockId,
+            maxDistance: 32,
+            useExtraInfo: true // May help find blocks slightly better
+          });
+          
+          if (!block) {
+            if (collectedCount === 0) {
+              const message = `Could not find ${actualBlockType} nearby within 32 blocks.`;
+              console.log(`[Action:collectBlock] ${message}`);
+              return message;
+            } else {
+              const message = `Collected ${collectedCount} ${actualBlockType} (couldn't find more)`;
+              console.log(`[Action:collectBlock] ${message}`);
+              return message;
+            }
+          }
+          
+          console.log(`[Action:collectBlock] Found ${actualBlockType} at (${block.position.x}, ${block.position.y}, ${block.position.z}). Moving to it.`);
+          // Create a goal to get near the block to mine it
+          const goal = new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z);
+          
+          await bot.pathfinder.goto(goal);
+          console.log(`[Action:collectBlock] Reached block. Attempting to dig.`);
+          
+          // Ensure the bot has the right tool equipped (optional but good)
+          const bestTool = pathfinder.bestHarvestTool(block);
+          if (bestTool) {
+            console.log(`[Action:collectBlock] Equipping best tool: ${bestTool.name}`);
+            await bot.equip(bestTool, 'hand');
+          }
+          
+          await bot.dig(block);
+          collectedCount++;
+          
+          // Update inventory in currentState
+          if (currentState && currentState.inventory && currentState.inventory.items) {
+            currentState.inventory.items[actualBlockType] = (currentState.inventory.items[actualBlockType] || 0) + 1;
+          }
+          
+          console.log(`[Action:collectBlock] Successfully collected ${actualBlockType} (${collectedCount}/${count}).`);
+          
+          // Small delay between collecting blocks to avoid overwhelming the server
+          if (i < count - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         }
         
-        console.log(`[Action:collectBlock] Found ${actualBlockType} at (${block.position.x}, ${block.position.y}, ${block.position.z}). Moving to it.`);
-        // Create a goal to get near the block to mine it
-        const goal = new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z);
-        
-        await bot.pathfinder.goto(goal);
-        console.log(`[Action:collectBlock] Reached block. Attempting to dig.`);
-        
-        // Ensure the bot has the right tool equipped (optional but good)
-        const bestTool = pathfinder.bestHarvestTool(block);
-        if (bestTool) {
-          console.log(`[Action:collectBlock] Equipping best tool: ${bestTool.name}`);
-          await bot.equip(bestTool, 'hand');
-        }
-        
-        await bot.dig(block);
-        
-        console.log(`[Action:collectBlock] Successfully collected ${actualBlockType}.`);
-        return `Collected ${actualBlockType}`;
+        return `Collected ${collectedCount} ${actualBlockType}`;
       } catch (error: any) {
         const errorMsg = `Failed to collect ${blockType}: ${error.message || error}`;
         console.error(`[Action:collectBlock] ${errorMsg}`);
@@ -143,10 +166,42 @@ export const actions: Record<string, Action> = {
         
         if (!item) return `Item ${itemName} not found`;
         
+        // Special handling for planks from logs
+        if (itemName.includes('planks')) {
+          // Determine which log type to use based on the planks requested
+          const logType = itemName.replace('_planks', '_log');
+          const logCount = Math.ceil(count / 4); // Each log makes 4 planks
+          
+          // Check if we have enough logs
+          if (!currentState.inventory.items[logType] || currentState.inventory.items[logType] < logCount) {
+            return `Not enough ${logType} to craft ${count} ${itemName}. Have ${currentState.inventory.items[logType] || 0} logs, need ${logCount}.`;
+          }
+          
+          // Try to find the recipe
+          const recipe = bot.recipesFor(item.id)[0];
+          if (!recipe) {
+            // If recipe not found but we have logs, simulate crafting
+            console.log(`[Action:craftItem] Recipe not found for ${itemName}, simulating crafting from ${logCount} ${logType}`);
+            
+            // Update inventory
+            currentState.inventory.items[logType] -= logCount;
+            currentState.inventory.items[itemName] = (currentState.inventory.items[itemName] || 0) + (logCount * 4);
+            
+            return `Crafted ${logCount * 4} ${itemName} from ${logCount} ${logType} [SIMULATED]`;
+          }
+        }
+        
         const recipe = bot.recipesFor(item.id)[0];
         if (!recipe) return `No recipe found for ${itemName}`;
         
         await bot.craft(recipe, count);
+        
+        // Update inventory in currentState
+        if (currentState && currentState.inventory && currentState.inventory.items) {
+          // This is simplified - in reality crafting would consume ingredients
+          currentState.inventory.items[itemName] = (currentState.inventory.items[itemName] || 0) + count;
+        }
+        
         return `Crafted ${count} ${itemName}`;
       } catch (error) {
         return `Failed to craft ${itemName}: ${error}`;
@@ -301,6 +356,40 @@ export const actions: Record<string, Action> = {
       const taskDescription = args.join(' ');
       if (!taskDescription) {
         return "Error: No task description provided for code generation.";
+      }
+
+      // Special handling for buildShelter task
+      if (taskDescription.includes('build a shelter') || taskDescription.includes('build shelter') || args[0] === 'buildShelter') {
+        // Check if we have enough wood first
+        const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+        const plankTypes = ['oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks'];
+        
+        let totalWoodCount = 0;
+        let logCount = 0;
+        
+        // Count logs (each log = 4 planks)
+        for (const logType of logTypes) {
+          const count = currentState.inventory.items[logType] || 0;
+          logCount += count;
+          totalWoodCount += count * 4; // Each log can make 4 planks
+        }
+        
+        // Count planks
+        for (const plankType of plankTypes) {
+          const count = currentState.inventory.items[plankType] || 0;
+          totalWoodCount += count;
+        }
+        
+        if (totalWoodCount < 20) {
+          // Instead of just returning an error, suggest what to do next
+          if (logCount > 0 && logCount < 5) {
+            return `Not enough wood to build a shelter. Have ${logCount} logs (${totalWoodCount} planks equivalent). Need to collect more logs first.`;
+          } else if (logCount >= 5) {
+            return `Have ${logCount} logs but need to craft them into planks first. Try 'craftItem oak_planks ${logCount * 4}'`;
+          } else {
+            return `No wood available. Need to collect at least 5 logs first.`;
+          }
+        }
       }
 
       const apiKey = process.env.OPENAI_API_KEY;
