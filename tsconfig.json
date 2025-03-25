@@ -7,6 +7,7 @@
       "outDir": "./dist",
       "rootDir": "./src",
       "strict": true,
+      "skipLibCheck": true, // Add this line
       "typeRoots": ["./node_modules/@types", "./src/types"]
     },
     "include": ["src/**/*"]

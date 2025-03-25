@@ -18,15 +18,16 @@
     "@langchain/langgraph-sdk": "^0.0.60",
     "@langchain/openai": "^0.5.0",
     "dotenv": "^16.4.7",
-    "eslint": "^8.57.0",
     "mineflayer": "^4.27.0",
     "mineflayer-pathfinder": "^2.4.5",
     "minecraft-data": "^3.58.1",
-    "ses": "^1.3.0",
     "vec3": "^0.1.8"
   },
   "devDependencies": {
     "@types/node": "^22.13.13",
+    "@types/eslint": "^8.56.10", // Add eslint types
+    "eslint": "^8.57.0", // Move eslint to devDependencies
+    "ses": "^1.3.0", // Move ses to devDependencies
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.2"

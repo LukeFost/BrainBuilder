@@ -126,10 +126,10 @@ module.exports = main; // Use module.exports for SES compatibility
       const lintResults = await this.eslint.lintText(code);
       const codeLines = code.split('\n');
 
-      lintResults.forEach(lintResult => {
+      lintResults.forEach((lintResult: any) => {
         if (lintResult.messages.length > 0) {
           hasErrors = true;
-          lintResult.messages.forEach((exc, index) => {
+          lintResult.messages.forEach((exc: any, index: number) => {
             const errorLine = exc.line ? (codeLines[exc.line - 1]?.trim() || 'N/A') : 'N/A';
             result += `# ERROR ${index + 1}\n`;
             result += `  Message: ${exc.message} (${exc.ruleId || 'general'})\n`;
@@ -220,7 +220,8 @@ module.exports = main; // Use module.exports for SES compatibility
   // This is crucial for security. Only expose necessary and safe methods/properties.
   private createSafeBotProxy(): Partial<Bot> {
       // Whitelist safe properties and methods
-      const safeBot: Partial<Bot> = {
+      // Use 'any' temporarily to bypass strict type checking for the proxy
+      const safeBot: any = {
           entity: this.bot.entity ? { // Expose only safe parts of entity
               position: this.bot.entity.position,
               velocity: this.bot.entity.velocity,

@@ -104,5 +104,4 @@ declare module 'minecraft-data' {
     export function findItemOrBlockByName(name: string, version: string | number): Item | Block | null;
   }
   
-  export = minecraftData;
 }
