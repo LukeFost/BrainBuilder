@@ -76,6 +76,7 @@ import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
 import { actions } from './agent/actions';
 import { State } from './agent/types';
+import { Critic } from './agent/critic'; // Import Critic
 
 // Define the LangGraph state object structure
 // Note: We are using our existing State interface. If more complex message passing is needed later,
@@ -98,6 +99,7 @@ const botConfig = {
 const bot = mineflayer.createBot(botConfig);
 const memoryManager = new MemoryManager(undefined, 10, process.env.OPENAI_API_KEY);
 const planner = new Planner(process.env.OPENAI_API_KEY || '');
+const critic = new Critic(); // Instantiate Critic
 
 // Define initial state
 const state: State = {
@@ -264,9 +266,9 @@ async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>>
   let nextAction: string | undefined = undefined;
 
   // Use the critic to evaluate if we need to replan
-  const { Critic } = require('./agent/critic');
-  const critic = new Critic();
-  const evaluation = critic.evaluate(currentState);
+  // const { Critic } = require('./agent/critic'); // No longer needed, critic is instantiated globally
+  // const critic = new Critic(); // No longer needed
+  const evaluation = critic.evaluate(currentState); // Use the global critic instance
   
   if (evaluation.needsReplanning) {
     console.log(`Critic suggests replanning: ${evaluation.reason}`);
@@ -294,16 +296,18 @@ async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>>
     console.log("Creating new plan...");
     try {
       const plan = await planner.createPlan(currentState, currentState.currentGoal);
-      console.log("New plan created:", plan);
+      // Clean the plan steps: remove numbering like "1. "
+      const cleanedPlan = plan.map(step => step.replace(/^\d+\.\s*/, '').trim()).filter(step => step.length > 0);
+      console.log("New plan created:", cleanedPlan); // Log cleaned plan
       // If a new plan was made, decide the first action from it
-      if (plan && plan.length > 0) {
-        nextAction = plan[0];
+      if (cleanedPlan && cleanedPlan.length > 0) {
+        nextAction = cleanedPlan[0];
         console.log(`Next action from new plan: ${nextAction}`);
-        return { currentPlan: plan, lastAction: nextAction }; // Update plan and set next action
+        return { currentPlan: cleanedPlan, lastAction: nextAction }; // Update plan and set next action
       } else {
         console.log("New plan is empty, deciding fallback action.");
         nextAction = await planner.decideNextAction(currentState); // Fallback if plan is empty
-        return { currentPlan: plan, lastAction: nextAction };
+        return { currentPlan: cleanedPlan, lastAction: nextAction };
       }
     } catch (error) {
       console.error("Error creating new plan:", error);

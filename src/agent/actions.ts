@@ -20,6 +20,34 @@ export const actions: Record<string, Action> = {
 
       console.log(`[Action:collectBlock] Request to collect ${count} ${blockType}`);
 
+      // --- Inventory Pre-Check ---
+      // Use actualBlockType after potential translation below if needed, but check with original first
+      let actualBlockTypeForCheck = blockType;
+      // Handle common block name variations for the check
+      if (blockType === 'wood' || blockType === 'log') {
+          const dataForVersionCheck = mcData(bot.version);
+          const logTypesCheck = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+          for (const logType of logTypesCheck) {
+              if (dataForVersionCheck.blocksByName[logType]) {
+                  actualBlockTypeForCheck = logType; // Use the first specific log type found for checking inventory
+                  break;
+              }
+          }
+      }
+      const currentInvCount = currentState.inventory.items[actualBlockTypeForCheck] || 0;
+      if (currentInvCount >= count) {
+          const successMsg = `Already have enough ${actualBlockTypeForCheck} (${currentInvCount}/${count}).`;
+          console.log(`[Action:collectBlock] ${successMsg}`);
+          return successMsg;
+      } else {
+          console.log(`[Action:collectBlock] Need ${count}, have ${currentInvCount} of ${actualBlockTypeForCheck}. Starting collection.`);
+          // Adjust count needed if some are already present
+          collectedCount = currentInvCount; // Start count from what we have
+          // Note: The loop below needs adjustment to use the remaining needed count
+      }
+      // --- End Inventory Pre-Check ---
+
+
       // Simulation mode handling
       if (!bot.pathfinder) {
         console.log(`[Action:collectBlock] Simulating collecting ${count} ${blockType}`);
@@ -64,9 +92,11 @@ export const actions: Record<string, Action> = {
           return `Block type '${actualBlockType}' (from '${blockType}') not found in minecraft-data`;
         }
         const blockId = blockData.id;
+        const neededCount = count - collectedCount; // Calculate how many more are needed
 
-        for (let i = 0; i < count; i++) {
-          console.log(`[Action:collectBlock] Searching for block ${i + 1}/${count} of '${actualBlockType}' (ID: ${blockId})`);
+        for (let i = 0; i < neededCount; i++) { // Loop only for the needed amount
+          const currentTotal = collectedCount + i; // Track total count including initial inventory
+          console.log(`[Action:collectBlock] Searching for block ${i + 1}/${neededCount} (total ${currentTotal + 1}/${count}) of '${actualBlockType}' (ID: ${blockId})`);
           const block = bot.findBlock({
             matching: blockId,
             maxDistance: 32,
@@ -94,13 +124,14 @@ export const actions: Record<string, Action> = {
           }
 
           await bot.dig(block);
-          collectedCount++;
+          // collectedCount is now the running total, including initial inventory
+          collectedCount++; // Increment the total count
           // Update inventory immediately after collecting
-          currentState.inventory.items[actualBlockType] = (currentState.inventory.items[actualBlockType] || 0) + 1;
-          console.log(`[Action:collectBlock] Successfully collected ${actualBlockType} (${collectedCount}/${count}).`);
+          currentState.inventory.items[actualBlockType] = collectedCount; // Set inventory to the new total
+          console.log(`[Action:collectBlock] Successfully collected ${actualBlockType} (total ${collectedCount}/${count}).`);
 
           // Small delay
-          if (i < count - 1) {
+          if (i < neededCount - 1) { // Adjust loop condition check
             await new Promise(resolve => setTimeout(resolve, 300));
           }
         }
