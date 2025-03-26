@@ -6,7 +6,8 @@ import * as pathfinder from 'mineflayer-pathfinder';
 import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages";
 import { StateGraph, END } from "@langchain/langgraph";
-import { RunnableConfig } from "@langchain/core/runnables";
+// Add near other @langchain imports
+import { RunnableLambda, RunnableConfig } from "@langchain/core/runnables";
 
 import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
@@ -419,12 +420,12 @@ const workflow = new StateGraph<State, Partial<State>, AgentNode>({
   }
 });
 
-// Add nodes using the wrapper functions
-workflow.addNode("observe", runObserveNodeWrapper);
-workflow.addNode("think", runThinkNodeWrapper);
-workflow.addNode("validate", runValidateNodeWrapper);
-workflow.addNode("act", runActNodeWrapper);
-workflow.addNode("resultAnalysis", runResultAnalysisNodeWrapper);
+// Add nodes using the wrapper functions wrapped in RunnableLambda
+workflow.addNode("observe", new RunnableLambda({ func: runObserveNodeWrapper }));
+workflow.addNode("think", new RunnableLambda({ func: runThinkNodeWrapper }));
+workflow.addNode("validate", new RunnableLambda({ func: runValidateNodeWrapper }));
+workflow.addNode("act", new RunnableLambda({ func: runActNodeWrapper }));
+workflow.addNode("resultAnalysis", new RunnableLambda({ func: runResultAnalysisNodeWrapper }));
 
 // Define edges without 'as any' for better type checking
 // First set the entry point
@@ -508,7 +509,7 @@ async function startAgentLoop() {
 
         // Invoke the graph with the current State object directly
         // The result will be the final State object after the graph run
-        const finalState: State | undefined = await app.invoke(currentAgentState, streamConfig);
+        const finalState = await app.invoke(currentAgentState, streamConfig) as State | undefined;
 
         // Update the shared state with the final result of the graph execution
         if (finalState) {
