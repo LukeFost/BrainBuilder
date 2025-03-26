@@ -64,9 +64,14 @@ Plan:`; // Ensure 'Plan:' label is present for potential parsing
     try {
         console.log("[Planner] Generating plan with prompt:\n", prompt); // Log the prompt for debugging
         const response = await this.model.invoke(prompt); // Pass prompt directly
-        const responseText = response.content.toString();
+        let responseText = response.content.toString().trim(); // Trim whitespace first
 
-        // Parse the response into individual steps, removing potential "Plan:" prefix and numbering
+        // Remove potential markdown code block fences (``` optionally followed by language name)
+        responseText = responseText.replace(/^```(?:\w*\s*)?\n?/, '').replace(/\n?```$/, '');
+        // Trim again after removing fences
+        responseText = responseText.trim();
+
+        // Parse the cleaned response into individual steps, removing potential "Plan:" prefix and numbering
         const planSteps = responseText.replace(/^Plan:\s*/i, '').split('\n')
           .map(line => line.trim().replace(/^\d+\.\s*/, '')) // Remove numbering
           .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('#')); // Filter empty lines/comments

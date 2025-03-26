@@ -336,7 +336,7 @@ async function startAgentLoop() {
 
     // The loop continuously processes state updates from the graph stream
     // Pass the initial AgentState wrapper to the stream
-    for await (const event of await app.stream({ state: currentAgentState }, streamConfig)) {
+    for await (const event of app.stream({ state: currentAgentState }, streamConfig)) {
         // The event object contains the output of the node that just ran,
         // keyed by the node name. The 'state' channel is automatically updated.
 

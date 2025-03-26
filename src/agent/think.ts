@@ -26,14 +26,21 @@ export class ThinkManager {
       reason = "No current plan or plan completed.";
     }
 
-    // Condition 2: Last action failed critically (resource issues, placement impossible, etc.)
-    // Avoid triggering replan for minor failures if retry logic handles it.
+    // Condition 2: Last action failed critically OR was unknown
     if (!needsReplan && lastResult) {
-        const criticalFailureKeywords = ['not enough', 'cannot place', 'not found in inventory', 'no recipe', 'need a crafting table'];
+        // Add "unknown action" to keywords
+        const criticalFailureKeywords = ['not enough', 'cannot place', 'not found in inventory', 'no recipe', 'need a crafting table', 'unknown action'];
         if (criticalFailureKeywords.some(keyword => lastResult.includes(keyword))) {
             needsReplan = true;
-            reason = `Critical failure in last action: "${currentState.lastActionResult}"`;
+            // Update reason slightly for clarity
+            reason = `Critical failure or unknown action in last step: "${currentState.lastActionResult}"`;
         }
+    }
+
+    // Optional: Reset consecutive failure counter on unknown action
+    if (lastResult.includes('unknown action')) {
+        this.lastFailedAction = null; // Prevent consecutive counter increment for unknown actions
+        this.consecutiveFailureCount = 0;
     }
 
     // Condition 3: Track consecutive failures of the *same* action
