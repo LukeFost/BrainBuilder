@@ -12,7 +12,7 @@ import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
 import { SkillRepository } from './agent/skills/skillRepository'; // Import SkillRepository
 // Import actions from the new index file
-import { actions } from './agent/actions/index';
+import { actions } from './agent/actions';
 import { State, Memory, Inventory, Surroundings } from './agent/types';
 import { ThinkManager } from './agent/think';
 import { ObserveManager } from './agent/observe';
