@@ -406,12 +406,8 @@ const StateAnnotation = Annotation.Root({
 });
 
 
-// Create a StateGraph instance using the Annotation definition with explicit types
-const workflow = new StateGraph<
-  StateAnnotation.State,
-  StateAnnotation.Update,
-  StateAnnotation.Channels
->(StateAnnotation);
+// Create a StateGraph instance using the Annotation definition
+const workflow = new StateGraph(StateAnnotation);
 
 // Add nodes with proper typing
 // workflow.addNode("__start__", startNode); // START is implicitly handled by addEdge(START, ...)
