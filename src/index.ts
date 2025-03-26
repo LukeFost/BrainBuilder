@@ -86,6 +86,7 @@ import { MemoryManager } from './agent/memory';
 import { actions } from './agent/actions';
 import { State } from './agent/types';
 import { Critic } from './agent/critic'; // Import Critic
+import { ThinkManager } from './agent/think'; // Import ThinkManager
 
 // Define the LangGraph state object structure
 // Note: We are using our existing State interface. If more complex message passing is needed later,
@@ -109,6 +110,7 @@ const bot = mineflayer.createBot(botConfig);
 const memoryManager = new MemoryManager(undefined, 10, process.env.OPENAI_API_KEY);
 const planner = new Planner(process.env.OPENAI_API_KEY || '');
 const critic = new Critic(); // Instantiate Critic
+let thinkManager: ThinkManager | null = null; // Will be instantiated when needed
 
 // Define initial state
 const state: State = {
@@ -218,124 +220,70 @@ bot.on('error', console.log);
 
 // --- Graph Nodes ---
 
+// Import the ObserveManager
+import { ObserveManager } from './agent/observe';
+
+// Create an instance of ObserveManager
+let observeManager: ObserveManager | null = null;
+
 // Observe Node: Gathers information about the environment and updates the state.
 async function observeNode(currentState: GraphState): Promise<Partial<GraphState>> {
   console.log("--- Running Observe Node ---");
-  // Update state with current observations
-  const position = bot.entity.position;
-  // Get inventory
-  const inventory: Record<string, number> = {};
-  bot.inventory.items().forEach(item => {
-    inventory[item.name] = (inventory[item.name] || 0) + item.count;
-  });
   
-  // Get nearby blocks (simplified)
-  const nearbyBlocks: string[] = [];
-  for (let x = -5; x <= 5; x++) {
-    for (let y = -5; y <= 5; y++) {
-      for (let z = -5; z <= 5; z++) {
-        const block = bot.blockAt(position.offset(x, y, z));
-        if (block && block.name !== 'air') {
-          nearbyBlocks.push(block.name);
-        }
-      }
-    }
+  // Create ObserveManager instance if not already created
+  if (!observeManager) {
+    observeManager = new ObserveManager(bot);
   }
   
-  // Get nearby entities
-  const nearbyEntities = Object.values(bot.entities)
-    .filter((entity: any) => entity.position.distanceTo(bot.entity.position) < 10)
-    .map((entity: any) => entity.name || entity.username || entity.type);
+  // Use the ObserveManager to handle the observation process
+  const observationResult = await observeManager.observe(currentState);
   
-  // Update state
-  state.inventory.items = inventory;
-  state.surroundings = {
-    nearbyBlocks: Array.from(new Set(nearbyBlocks)),
-    nearbyEntities,
-    position: {
-      x: position.x,
-      y: position.y,
-      z: position.z
-    },
-    health: bot.health, // Read health
-    food: bot.food      // Read food
-  };
-
-  // TODO: Integrate prismarine-viewer for visual input (requires significant setup)
-
-  // Return the updated parts of the state
+  // Merge with memory
   return {
-    inventory: { items: inventory },
-    surroundings: state.surroundings,
+    ...observationResult,
     memory: memoryManager.fullMemory // Ensure memory is fresh
   };
 }
 
 
+// Import the ThinkManager
+import { ThinkManager } from './agent/think';
+
 // Think Node: Decides the next action or if replanning is needed.
 async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>> {
   console.log("--- Running Think Node ---");
-  let needsNewPlan = false;
-  let nextAction: string | undefined = undefined;
-
+  
   // Use the critic to evaluate if we need to replan
-  // const { Critic } = require('./agent/critic'); // No longer needed, critic is instantiated globally
-  // const critic = new Critic(); // No longer needed
-  const evaluation = critic.evaluate(currentState); // Use the global critic instance
+  const evaluation = critic.evaluate(currentState);
   
   if (evaluation.needsReplanning) {
     console.log(`Critic suggests replanning: ${evaluation.reason}`);
-    needsNewPlan = true;
-  }
-  // Reason 1: No plan exists or current plan is completed
-  else if (!currentState.currentPlan || currentState.currentPlan.length === 0) {
-    console.log("Reason for new plan: No current plan or plan completed.");
-    needsNewPlan = true;
-  }
-  // Reason 2: Last action failed significantly (customize condition as needed)
-  else if (currentState.lastActionResult && currentState.lastActionResult.toLowerCase().includes('failed')) {
-    console.log(`Reason for considering new plan: Last action failed - "${currentState.lastActionResult}"`);
-    // Simple strategy: Always replan on failure. More complex logic could be added.
-    needsNewPlan = true;
+    
+    // Create ThinkManager instance if not already created
+    if (!thinkManager) {
+      thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || '');
+    }
+    
+    // Use the ThinkManager to handle the thinking process
+    return await thinkManager.think(currentState);
   }
   
-  // Reason 3: The executed action didn't match the plan step (handled in act, but could trigger replan here too)
-  // if (state.lastAction && state.currentPlan && state.currentPlan.length > 0 && state.lastAction !== state.currentPlan[0]) {
-  //    console.log("Reason for considering new plan: Action deviated from plan.");
-  //    needsNewPlan = true;
-  // }
-
-  if (needsNewPlan && currentState.currentGoal) {
-    console.log("Creating new plan...");
-    try {
-      const planStepsRaw = await planner.createPlan(currentState, currentState.currentGoal);
-      // Clean the plan steps: remove numbering like "1. " and filter empty lines
-      const cleanedPlan = planStepsRaw
-        .map(step => step.replace(/^\d+\.\s*/, '').trim())
-        .filter(step => step.length > 0);
-        
-      console.log("New plan created:", cleanedPlan);
-      // If a new plan was made, decide the first action from it
-      if (cleanedPlan.length > 0) {
-        nextAction = cleanedPlan[0];
-        console.log(`Next action from new plan: ${nextAction}`);
-        return { currentPlan: cleanedPlan, lastAction: nextAction }; // Update plan and set next action
-      } else {
-        console.log("New plan is empty, deciding fallback action.");
-        nextAction = await planner.decideNextAction(currentState); // Fallback if plan is empty
-        return { currentPlan: cleanedPlan, lastAction: nextAction };
-      }
-    } catch (error) {
-      console.error("Error creating new plan:", error);
-      nextAction = 'lookAround'; // Fallback action on planning error
-      return { lastAction: nextAction };
-    }
+  // If no replanning needed according to critic, continue with existing plan
+  if (currentState.currentPlan && currentState.currentPlan.length > 0) {
+    const nextAction = currentState.currentPlan[0];
+    console.log(`Continuing with existing plan. Next action: ${nextAction}`);
+    return { lastAction: nextAction };
   } else {
-    // If no new plan is needed, decide the next action based on the current state/plan
-    console.log("Continuing with existing plan or deciding next action.");
-    nextAction = await planner.decideNextAction(currentState);
-    console.log(`Decided next action: ${nextAction}`);
-    return { lastAction: nextAction }; // Only update the next action
+    // No plan but critic didn't suggest replanning - fallback
+    console.log("No current plan but critic didn't suggest replanning. Creating new plan anyway.");
+    
+    // Create ThinkManager instance if not already created
+    if (!thinkManager) {
+      thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || '');
+    }
+    
+    // Use the ThinkManager to create a new plan
+    return await thinkManager.think(currentState);
   }
 }
 

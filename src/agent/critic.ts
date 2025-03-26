@@ -18,35 +18,48 @@ export class Critic {
     const lastActionResult = state.lastActionResult || '';
     const lastAction = state.lastAction || '';
 
-    // Check if we're stuck in a loop
-    if (state.memory.shortTerm.length >= 3) {
-      const recentActions = state.memory.shortTerm.slice(-3).filter(entry => 
+    // Check if we're stuck in a loop - more aggressive detection
+    if (state.memory.shortTerm.length >= 2) { // Reduced from 3 to 2 for faster detection
+      const recentActions = state.memory.shortTerm.slice(-2).filter(entry => 
         entry.includes(`Action: ${lastAction}`));
       
-      if (recentActions.length >= 3 && recentActions.every(action => 
-        action.includes(lastActionResult))) {
-        return {
-          needsReplanning: true,
-          reason: `Stuck in a loop: Same action "${lastAction}" failing with "${lastActionResult}" repeatedly`
-        };
+      if (recentActions.length >= 2) {
+        // Check if the results are similar (not necessarily identical)
+        const similarResults = recentActions.every(action => {
+          const resultPart = action.split('Result:')[1]?.trim() || '';
+          return resultPart.includes('not found in inventory') || 
+                 resultPart.includes('Not enough') ||
+                 resultPart.includes('Cannot place') ||
+                 resultPart.includes('Failed to');
+        });
+        
+        if (similarResults) {
+          return {
+            needsReplanning: true,
+            reason: `Stuck in a loop: Similar failures for action "${lastAction}" detected`
+          };
+        }
       }
     }
     
-    // Check if we're repeating the same failing action
+    // Check if we're repeating the same failing action - more aggressive detection
     if (state.lastAction === this.lastAction && 
         (state.lastActionResult.toLowerCase().includes('fail') || 
-        state.lastActionResult.toLowerCase().includes('error') ||
-        state.lastActionResult.toLowerCase().includes('not enough'))) {
+         state.lastActionResult.toLowerCase().includes('error') ||
+         state.lastActionResult.toLowerCase().includes('not enough') ||
+         state.lastActionResult.toLowerCase().includes('not found in inventory') ||
+         state.lastActionResult.toLowerCase().includes('cannot place'))) {
       
       this.failureCount++;
       console.log(`Critic: Same action "${state.lastAction}" failed ${this.failureCount} times`);
       
-      if (this.failureCount >= this.maxFailures) {
+      // Reduced threshold from 2 to 1 - immediately replan on repeated failure
+      if (this.failureCount >= 1) {
         // Reset counter after triggering replan
         this.failureCount = 0;
         return {
           needsReplanning: true,
-          reason: `Same action "${state.lastAction}" failed ${this.maxFailures} times with result: "${state.lastActionResult}"`
+          reason: `Action "${state.lastAction}" failed with result: "${state.lastActionResult}"`
         };
       }
     } else if (state.lastAction !== this.lastAction) {

@@ -3,12 +3,25 @@ import * as mineflayer from 'mineflayer';
 import * as mcDataModule from 'minecraft-data';
 // Handle both CommonJS and ES module versions of minecraft-data
 const mcData = (version: string) => {
-  if (typeof mcDataModule === 'function') {
-    return mcDataModule(version);
-  } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
-    return mcDataModule.default(version);
+  try {
+    if (typeof mcDataModule === 'function') {
+      return mcDataModule(version);
+    } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
+      return mcDataModule.default(version);
+    } else {
+      // Direct require as fallback
+      return require('minecraft-data')(version);
+    }
+  } catch (error) {
+    console.error(`[mcData] Error initializing minecraft-data for version ${version}:`, error);
+    // Last resort fallback - direct require with error handling
+    try {
+      return require('minecraft-data')(version);
+    } catch (e) {
+      console.error(`[mcData] Critical failure loading minecraft-data:`, e);
+      throw new Error(`Unable to initialize minecraft-data for version ${version}: ${error.message}`);
+    }
   }
-  throw new Error('Unable to initialize minecraft-data properly');
 };
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder'; // Import goals with alias
 import { Vec3 } from 'vec3'; // Import Vec3
@@ -43,7 +56,29 @@ export const actions: Record<string, Action> = {
               }
           }
       }
-      const currentInvCount = currentState.inventory.items[actualBlockTypeForCheck] || 0;
+      
+      // CRITICAL: Check both state inventory AND actual bot inventory
+      const stateInvCount = currentState.inventory.items[actualBlockTypeForCheck] || 0;
+      
+      // Get count from actual bot inventory
+      const botInvItem = bot.inventory.items().find(item => item.name === actualBlockTypeForCheck);
+      const botInvCount = botInvItem ? botInvItem.count : 0;
+      
+      // If there's a discrepancy, fix the state
+      if (stateInvCount !== botInvCount) {
+          console.warn(`[Action:collectBlock] Inventory discrepancy detected: State shows ${stateInvCount} ${actualBlockTypeForCheck}, but bot has ${botInvCount}`);
+          // Update state to match reality
+          if (botInvCount > 0) {
+              currentState.inventory.items[actualBlockTypeForCheck] = botInvCount;
+          } else {
+              delete currentState.inventory.items[actualBlockTypeForCheck];
+          }
+          console.log(`[Action:collectBlock] Inventory state corrected for ${actualBlockTypeForCheck}: ${botInvCount}`);
+      }
+      
+      // Use the corrected inventory count
+      const currentInvCount = botInvCount;
+      
       if (currentInvCount >= count) {
           const successMsg = `Already have enough ${actualBlockTypeForCheck} (${currentInvCount}/${count}).`;
           console.log(`[Action:collectBlock] ${successMsg}`);
@@ -239,11 +274,46 @@ export const actions: Record<string, Action> = {
           const planksToCraft = requiredLogs * 4;
           console.log(`[Action:craftItem] Simulating crafting ${planksToCraft} ${itemName} from ${requiredLogs} ${actualLogType}`);
           bot.chat(`Crafting ${planksToCraft} ${itemName} [SIMULATED]`);
+          
+          // Update both the state inventory AND the bot's actual inventory
+          // 1. Remove logs from state
           currentState.inventory.items[actualLogType] = availableLogs - requiredLogs;
           if (currentState.inventory.items[actualLogType] <= 0) {
               delete currentState.inventory.items[actualLogType];
           }
+          
+          // 2. Add planks to state
           currentState.inventory.items[itemName] = (currentState.inventory.items[itemName] || 0) + planksToCraft;
+          
+          // 3. Update bot's actual inventory (important for consistency!)
+          // Find the log item in bot's inventory
+          const logItem = bot.inventory.items().find(item => item.name === actualLogType);
+          if (logItem) {
+              // Throw away the logs (simulating consumption)
+              try {
+                  await bot.toss(logItem.type, null, requiredLogs);
+                  console.log(`[Action:craftItem] Removed ${requiredLogs} ${actualLogType} from inventory`);
+              } catch (e) {
+                  console.warn(`[Action:craftItem] Failed to remove logs from inventory: ${e.message}`);
+              }
+          }
+          
+          // Add the planks to bot's inventory (in real gameplay, this would be done by the crafting system)
+          // We need to use a creative mode command or similar to add the item
+          try {
+              if (bot._client && bot._client.write) {
+                  // If in creative mode, we can use the creative inventory action
+                  // This is a simplified approach - in production you'd want proper error handling
+                  const plankItem = dataForVersion.itemsByName[itemName];
+                  if (plankItem) {
+                      bot.chat(`/give @p ${itemName} ${planksToCraft}`);
+                      console.log(`[Action:craftItem] Added ${planksToCraft} ${itemName} to inventory via command`);
+                  }
+              }
+          } catch (e) {
+              console.warn(`[Action:craftItem] Failed to add planks to inventory: ${e.message}`);
+          }
+          
           return `Crafted ${planksToCraft} ${itemName} from ${requiredLogs} ${actualLogType}`;
         }
 
@@ -417,6 +487,21 @@ export const actions: Record<string, Action> = {
 
       console.log(`[Action:placeBlock] Request to place ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`);
 
+      // CRITICAL: Verify the block is actually in the bot's inventory, not just in the state
+      const itemInBotInventory = bot.inventory.items().find((item: any) => item.name === blockType);
+      if (!itemInBotInventory) {
+          console.error(`[Action:placeBlock] Block ${blockType} not found in bot's actual inventory!`);
+          
+          // Check if it's in the state but not in the actual inventory (desync issue)
+          if (currentState.inventory.items[blockType] && currentState.inventory.items[blockType] > 0) {
+              console.error(`[Action:placeBlock] State inventory shows ${currentState.inventory.items[blockType]} ${blockType}, but not found in bot inventory. Fixing state.`);
+              // Fix the state to match reality
+              delete currentState.inventory.items[blockType];
+          }
+          
+          return `Cannot place ${blockType}: Not found in inventory. State has been corrected.`;
+      }
+
       if (!bot.pathfinder) {
           console.log(`[Action:placeBlock] Simulating placement of ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`);
           bot.chat(`Placing ${blockType} at (${targetPos.x}, ${targetPos.y}, ${targetPos.z}) [SIMULATED]`);
@@ -428,7 +513,7 @@ export const actions: Record<string, Action> = {
       }
 
       try {
-          const mcData = require('minecraft-data')(bot.version);
+          const dataForVersion = mcData(bot.version as string);
 
           // 1. Check inventory
           const itemInInventory = bot.inventory.items().find((item: any) => item.name === blockType);
@@ -604,25 +689,57 @@ export const actions: Record<string, Action> = {
 
       // Special handling for buildShelter task
       if (taskDescription.toLowerCase().includes('build a shelter') || taskDescription.toLowerCase().includes('build shelter')) {
+        // CRITICAL: Verify inventory consistency between state and actual bot inventory
+        console.log(`[Action:generateAndExecuteCode] Verifying inventory consistency before shelter building...`);
+        
+        // Get actual inventory from bot
+        const actualInventory: Record<string, number> = {};
+        bot.inventory.items().forEach(item => {
+          actualInventory[item.name] = (actualInventory[item.name] || 0) + item.count;
+        });
+        
+        // Check for discrepancies
+        let inventoryFixed = false;
+        for (const [itemName, count] of Object.entries(currentState.inventory.items)) {
+          if (!actualInventory[itemName] || actualInventory[itemName] < count) {
+            console.error(`[Action:generateAndExecuteCode] Inventory discrepancy detected: State shows ${count} ${itemName}, but bot has ${actualInventory[itemName] || 0}`);
+            // Fix the state to match reality
+            if (actualInventory[itemName]) {
+              currentState.inventory.items[itemName] = actualInventory[itemName];
+            } else {
+              delete currentState.inventory.items[itemName];
+            }
+            inventoryFixed = true;
+          }
+        }
+        
+        if (inventoryFixed) {
+          console.log(`[Action:generateAndExecuteCode] Inventory state has been corrected to match actual bot inventory`);
+        }
+        
+        // Now check if we have enough materials with the corrected inventory
         const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
         const plankTypes = ['oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks'];
         let totalWoodCount = 0;
         let logCount = 0;
+        
+        // Use the actual bot inventory for this check
         for (const logType of logTypes) {
-          const count = currentState.inventory.items[logType] || 0;
+          const count = actualInventory[logType] || 0;
           logCount += count;
           totalWoodCount += count * 4;
         }
         for (const plankType of plankTypes) {
-          totalWoodCount += currentState.inventory.items[plankType] || 0;
+          totalWoodCount += actualInventory[plankType] || 0;
         }
+        
         const minWoodNeeded = 20;
         if (totalWoodCount < minWoodNeeded) {
           if (logCount > 0 && logCount < Math.ceil(minWoodNeeded / 4)) {
             return `Not enough wood to build a shelter. Have ${logCount} logs (~${totalWoodCount} planks). Need ~${minWoodNeeded} planks total. Collect more logs first.`;
           } else if (logCount >= Math.ceil(minWoodNeeded / 4)) {
             const planksToCraft = logCount * 4;
-            const suggestedPlankType = logTypes.find(lt => currentState.inventory.items[lt] > 0)?.replace('_log', '_planks') || 'oak_planks';
+            const suggestedPlankType = logTypes.find(lt => actualInventory[lt] > 0)?.replace('_log', '_planks') || 'oak_planks';
             return `Have ${logCount} logs but need to craft them into planks first. Try 'craftItem ${suggestedPlankType} ${planksToCraft}'`;
           } else {
             return `No wood available. Need to collect at least ${Math.ceil(minWoodNeeded / 4)} logs first.`;
