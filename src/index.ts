@@ -204,7 +204,8 @@ Available commands:
     const currentGoal = currentAgentState.currentGoal || 'No specific goal set';
     bot.chat(`My current goal is: ${currentGoal}`);
     console.log(`[Chat] Responding to goal question from ${username}`);
-    await memoryManager.addToShortTerm(`Player ${username} asked about my goal`);
+    // await memoryManager.addToShortTerm(`Player ${username} asked about my goal`);
+    await memoryManager.addRecentAction(`Player query: goal`, `User ${username} asked about goal`);
   }
   // Default response for unrecognized messages
   else {
