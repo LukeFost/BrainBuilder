@@ -242,175 +242,213 @@ export const actions: Record<string, Action> = {
       const count = parseInt(countStr, 10) || 1;
       console.log(`[Action:craftItem] Attempting to craft ${count} ${itemName}`);
 
+      // Normalize item names - handle common variations
+      let normalizedItemName = itemName;
+      if (itemName === 'wooden_planks') {
+        normalizedItemName = 'oak_planks';
+        console.log(`[Action:craftItem] Normalized 'wooden_planks' to 'oak_planks'`);
+      }
+
       try {
         const dataForVersion = mcData(bot.version as string);
-        const itemToCraft = dataForVersion.itemsByName[itemName];
-
-        if (!itemToCraft) return `Item '${itemName}' not found in minecraft-data`;
+        
+        // Check if item exists in minecraft-data
+        const itemToCraft = dataForVersion.itemsByName[normalizedItemName];
+        if (!itemToCraft) {
+          console.error(`[Action:craftItem] Item '${normalizedItemName}' not found in minecraft-data`);
+          return `Item '${normalizedItemName}' not found in minecraft-data`;
+        }
 
         // --- Specific Plank Crafting Logic ---
-        if (itemName.includes('_planks')) {
-          const logType = itemName.replace('_planks', '_log');
+        if (normalizedItemName.includes('_planks')) {
+          const logType = normalizedItemName.replace('_planks', '_log');
           let actualLogType = logType;
-          if (!currentState.inventory.items[logType] || currentState.inventory.items[logType] === 0) {
-              const availableLogTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
-              for (const altLog of availableLogTypes) {
-                  if (currentState.inventory.items[altLog] && currentState.inventory.items[altLog] > 0) {
-                      actualLogType = altLog;
-                      console.log(`[Action:craftItem] Using available log type '${actualLogType}' instead of '${logType}'`);
-                      break;
-                  }
+          
+          // First, verify the bot's actual inventory
+          const botInventory: Record<string, number> = {};
+          bot.inventory.items().forEach(item => {
+            botInventory[item.name] = (botInventory[item.name] || 0) + item.count;
+          });
+          
+          // Update state to match bot's actual inventory
+          currentState.inventory.items = botInventory;
+          
+          // If we don't have the specific log type, check for any available log type
+          if (!botInventory[logType] || botInventory[logType] === 0) {
+            const availableLogTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+            for (const altLog of availableLogTypes) {
+              if (botInventory[altLog] && botInventory[altLog] > 0) {
+                actualLogType = altLog;
+                console.log(`[Action:craftItem] Using available log type '${actualLogType}' instead of '${logType}'`);
+                break;
               }
+            }
           }
 
           const requiredLogs = Math.ceil(count / 4);
-          const availableLogs = currentState.inventory.items[actualLogType] || 0;
+          const availableLogs = botInventory[actualLogType] || 0;
 
           if (availableLogs < requiredLogs) {
-            return `Not enough ${actualLogType} (or any logs) to craft ${count} ${itemName}. Have ${availableLogs}, need ${requiredLogs}.`;
+            return `Not enough ${actualLogType} to craft ${count} ${normalizedItemName}. Have ${availableLogs}, need ${requiredLogs}.`;
           }
 
-          // Simulate crafting: Consume logs, add planks
-          const planksToCraft = requiredLogs * 4;
-          console.log(`[Action:craftItem] Simulating crafting ${planksToCraft} ${itemName} from ${requiredLogs} ${actualLogType}`);
-          bot.chat(`Crafting ${planksToCraft} ${itemName} [SIMULATED]`);
+          // Use the game's actual crafting system if available
+          if (bot.craft) {
+            try {
+              // Find the recipe for planks
+              const recipes = bot.recipesFor(itemToCraft.id, null, 1, null);
+              if (recipes.length > 0) {
+                const recipe = recipes[0];
+                await bot.craft(recipe, Math.min(requiredLogs, availableLogs), null);
+                
+                // Update state after successful crafting
+                // Get the actual inventory again to ensure accuracy
+                const updatedInventory: Record<string, number> = {};
+                bot.inventory.items().forEach(item => {
+                  updatedInventory[item.name] = (updatedInventory[item.name] || 0) + item.count;
+                });
+                currentState.inventory.items = updatedInventory;
+                
+                return `Crafted ${normalizedItemName} from ${actualLogType} using in-game crafting`;
+              }
+            } catch (craftError) {
+              console.error(`[Action:craftItem] Error using bot.craft:`, craftError);
+            }
+          }
           
-          // Update both the state inventory AND the bot's actual inventory
-          // 1. Remove logs from state
+          // If we can't use the game's crafting system, just update the inventory directly
+          // This is a fallback for when bot.craft isn't available or fails
+          console.log(`[Action:craftItem] Using direct inventory update for ${normalizedItemName}`);
+          
+          // Use a command to give the player the planks (if in creative mode)
+          bot.chat(`/give @p ${normalizedItemName} ${requiredLogs * 4}`);
+          
+          // Update the state inventory
           currentState.inventory.items[actualLogType] = availableLogs - requiredLogs;
           if (currentState.inventory.items[actualLogType] <= 0) {
-              delete currentState.inventory.items[actualLogType];
+            delete currentState.inventory.items[actualLogType];
           }
           
-          // 2. Add planks to state
-          currentState.inventory.items[itemName] = (currentState.inventory.items[itemName] || 0) + planksToCraft;
+          currentState.inventory.items[normalizedItemName] = (currentState.inventory.items[normalizedItemName] || 0) + (requiredLogs * 4);
           
-          // 3. Update bot's actual inventory (important for consistency!)
-          // Find the log item in bot's inventory
-          const logItem = bot.inventory.items().find(item => item.name === actualLogType);
-          if (logItem) {
-              // Throw away the logs (simulating consumption)
-              try {
-                  await bot.toss(logItem.type, null, requiredLogs);
-                  console.log(`[Action:craftItem] Removed ${requiredLogs} ${actualLogType} from inventory`);
-              } catch (e) {
-                  console.warn(`[Action:craftItem] Failed to remove logs from inventory: ${e.message}`);
-              }
-          }
-          
-          // Add the planks to bot's inventory (in real gameplay, this would be done by the crafting system)
-          // We need to use a creative mode command or similar to add the item
-          try {
-              if (bot._client && bot._client.write) {
-                  // If in creative mode, we can use the creative inventory action
-                  // This is a simplified approach - in production you'd want proper error handling
-                  const plankItem = dataForVersion.itemsByName[itemName];
-                  if (plankItem) {
-                      bot.chat(`/give @p ${itemName} ${planksToCraft}`);
-                      console.log(`[Action:craftItem] Added ${planksToCraft} ${itemName} to inventory via command`);
-                  }
-              }
-          } catch (e) {
-              console.warn(`[Action:craftItem] Failed to add planks to inventory: ${e.message}`);
-          }
-          
-          return `Crafted ${planksToCraft} ${itemName} from ${requiredLogs} ${actualLogType}`;
+          return `Crafted ${requiredLogs * 4} ${normalizedItemName} from ${requiredLogs} ${actualLogType}`;
         }
 
         // --- General Recipe Logic ---
         if (bot.recipesFor) {
-             const recipe = bot.recipesFor(itemToCraft.id, null, 1, null)[0]; // Hand recipe
-             if (recipe) {
-                 console.log(`[Action:craftItem] Found hand recipe for ${itemName}. Attempting craft.`);
-                 // Check ingredients
-                 let canCraft = true;
-                 let missingIngredients = [];
-                 if (recipe.delta) {
-                     for (const ingredient of recipe.delta) {
-                         if (ingredient.count < 0) {
-                             const ingredientName = dataForVersion.items[ingredient.id]?.name;
-                             const requiredCount = -ingredient.count * count;
-                             if (!ingredientName || (currentState.inventory.items[ingredientName] || 0) < requiredCount) {
-                                 canCraft = false;
-                                 missingIngredients.push(`${requiredCount} ${ingredientName || `item ID ${ingredient.id}`}`);
-                             }
-                         }
-                     }
-                 } else { console.warn(`[Action:craftItem] Hand recipe for ${itemName} has no delta.`); }
+          const recipe = bot.recipesFor(itemToCraft.id, null, 1, null)[0]; // Hand recipe
+          if (recipe) {
+            console.log(`[Action:craftItem] Found hand recipe for ${normalizedItemName}. Attempting craft.`);
+            
+            // Check ingredients using bot's actual inventory
+            const botInventory: Record<string, number> = {};
+            bot.inventory.items().forEach(item => {
+              botInventory[item.name] = (botInventory[item.name] || 0) + item.count;
+            });
+            
+            // Update state to match reality
+            currentState.inventory.items = botInventory;
+            
+            let canCraft = true;
+            let missingIngredients = [];
+            
+            if (recipe.delta) {
+              for (const ingredient of recipe.delta) {
+                if (ingredient.count < 0) {
+                  const ingredientName = dataForVersion.items[ingredient.id]?.name;
+                  const requiredCount = -ingredient.count * count;
+                  if (!ingredientName || (botInventory[ingredientName] || 0) < requiredCount) {
+                    canCraft = false;
+                    missingIngredients.push(`${requiredCount} ${ingredientName || `item ID ${ingredient.id}`}`);
+                  }
+                }
+              }
+            } else { 
+              console.warn(`[Action:craftItem] Hand recipe for ${normalizedItemName} has no delta.`); 
+            }
 
-                 if (canCraft) {
-                     // Pass undefined instead of null for crafting table argument
-                     await bot.craft(recipe, count, undefined);
-                     console.log(`[Action:craftItem] bot.craft called for ${count} ${itemName} (hand)`);
-                     // Update state inventory
-                     if (recipe.delta) {
-                         for (const itemChange of recipe.delta) {
-                             const changedItemName = dataForVersion.items[itemChange.id]?.name;
-                             if (changedItemName) {
-                                 currentState.inventory.items[changedItemName] = (currentState.inventory.items[changedItemName] || 0) + (itemChange.count * count);
-                                 if (currentState.inventory.items[changedItemName] <= 0) { delete currentState.inventory.items[changedItemName]; }
-                             }
-                         }
-                     } else { currentState.inventory.items[itemName] = (currentState.inventory.items[itemName] || 0) + count; }
-                     return `Crafted ${count} ${itemName}`;
-                 } else {
-                     const message = `Not enough ingredients for hand craft ${count} ${itemName}. Missing: ${missingIngredients.join(', ')}`;
-                     console.log(`[Action:craftItem] ${message}`);
-                     return message;
-                 }
-             } else {
-                 // Check for recipe requiring crafting table
-                 const tableRecipe = bot.recipesFor(itemToCraft.id, null, 1, true)[0]; // craftingTable = true
-                 if (tableRecipe) {
-                     const craftingTableBlock = bot.findBlock({
-                         matching: dataForVersion.blocksByName['crafting_table']?.id,
-                         maxDistance: 4
-                     });
-                     if (!craftingTableBlock) {
-                         return `Cannot craft ${itemName}. Need a crafting table nearby.`;
-                     }
-                     console.log(`[Action:craftItem] Found table recipe for ${itemName}. Attempting craft.`);
-                     // Check ingredients
-                     let canCraftWithTable = true;
-                     let missingTableIngredients = [];
-                     if (tableRecipe.delta) {
-                         for (const ingredient of tableRecipe.delta) {
-                             if (ingredient.count < 0) {
-                                 const ingredientName = dataForVersion.items[ingredient.id]?.name;
-                                 const requiredCount = -ingredient.count * count;
-                                 if (!ingredientName || (currentState.inventory.items[ingredientName] || 0) < requiredCount) {
-                                     canCraftWithTable = false;
-                                     missingTableIngredients.push(`${requiredCount} ${ingredientName || `item ID ${ingredient.id}`}`);
-                                 }
-                             }
-                         }
-                     } else { console.warn(`[Action:craftItem] Table recipe for ${itemName} has no delta.`); }
+            if (canCraft) {
+              await bot.craft(recipe, count, null);
+              console.log(`[Action:craftItem] bot.craft called for ${count} ${normalizedItemName} (hand)`);
+              
+              // Update state with actual inventory after crafting
+              const updatedInventory: Record<string, number> = {};
+              bot.inventory.items().forEach(item => {
+                updatedInventory[item.name] = (updatedInventory[item.name] || 0) + item.count;
+              });
+              currentState.inventory.items = updatedInventory;
+              
+              return `Crafted ${count} ${normalizedItemName}`;
+            } else {
+              const message = `Not enough ingredients for hand craft ${count} ${normalizedItemName}. Missing: ${missingIngredients.join(', ')}`;
+              console.log(`[Action:craftItem] ${message}`);
+              return message;
+            }
+          } else {
+            // Check for recipe requiring crafting table
+            const tableRecipe = bot.recipesFor(itemToCraft.id, null, 1, true)[0]; // craftingTable = true
+            if (tableRecipe) {
+              const craftingTableBlock = bot.findBlock({
+                matching: dataForVersion.blocksByName['crafting_table']?.id,
+                maxDistance: 4
+              });
+              
+              if (!craftingTableBlock) {
+                return `Cannot craft ${normalizedItemName}. Need a crafting table nearby.`;
+              }
+              
+              console.log(`[Action:craftItem] Found table recipe for ${normalizedItemName}. Attempting craft.`);
+              
+              // Check ingredients using bot's actual inventory
+              const botInventory: Record<string, number> = {};
+              bot.inventory.items().forEach(item => {
+                botInventory[item.name] = (botInventory[item.name] || 0) + item.count;
+              });
+              
+              // Update state to match reality
+              currentState.inventory.items = botInventory;
+              
+              let canCraftWithTable = true;
+              let missingTableIngredients = [];
+              
+              if (tableRecipe.delta) {
+                for (const ingredient of tableRecipe.delta) {
+                  if (ingredient.count < 0) {
+                    const ingredientName = dataForVersion.items[ingredient.id]?.name;
+                    const requiredCount = -ingredient.count * count;
+                    if (!ingredientName || (botInventory[ingredientName] || 0) < requiredCount) {
+                      canCraftWithTable = false;
+                      missingTableIngredients.push(`${requiredCount} ${ingredientName || `item ID ${ingredient.id}`}`);
+                    }
+                  }
+                }
+              } else { 
+                console.warn(`[Action:craftItem] Table recipe for ${normalizedItemName} has no delta.`); 
+              }
 
-                     if (canCraftWithTable) {
-                         await bot.craft(tableRecipe, count, craftingTableBlock);
-                         console.log(`[Action:craftItem] bot.craft called for ${count} ${itemName} using crafting table.`);
-                         // Update state inventory
-                         if (tableRecipe.delta) {
-                             for (const itemChange of tableRecipe.delta) {
-                                 const changedItemName = dataForVersion.items[itemChange.id]?.name;
-                                 if (changedItemName) {
-                                     currentState.inventory.items[changedItemName] = (currentState.inventory.items[changedItemName] || 0) + (itemChange.count * count);
-                                     if (currentState.inventory.items[changedItemName] <= 0) { delete currentState.inventory.items[changedItemName]; }
-                                 }
-                             }
-                         } else { currentState.inventory.items[itemName] = (currentState.inventory.items[itemName] || 0) + count; }
-                         return `Crafted ${count} ${itemName} using crafting table`;
-                     } else {
-                         const message = `Not enough ingredients for table craft ${count} ${itemName}. Missing: ${missingTableIngredients.join(', ')}`;
-                         console.log(`[Action:craftItem] ${message}`);
-                         return message;
-                     }
-                 } else {
-                     return `No recipe found for ${itemName} (checked hand and table)`;
-                 }
-             }
+              if (canCraftWithTable) {
+                await bot.craft(tableRecipe, count, craftingTableBlock);
+                console.log(`[Action:craftItem] bot.craft called for ${count} ${normalizedItemName} using crafting table.`);
+                
+                // Update state with actual inventory after crafting
+                const updatedInventory: Record<string, number> = {};
+                bot.inventory.items().forEach(item => {
+                  updatedInventory[item.name] = (updatedInventory[item.name] || 0) + item.count;
+                });
+                currentState.inventory.items = updatedInventory;
+                
+                return `Crafted ${count} ${normalizedItemName} using crafting table`;
+              } else {
+                const message = `Not enough ingredients for table craft ${count} ${normalizedItemName}. Missing: ${missingTableIngredients.join(', ')}`;
+                console.log(`[Action:craftItem] ${message}`);
+                return message;
+              }
+            } else {
+              return `No recipe found for ${normalizedItemName} (checked hand and table)`;
+            }
+          }
         } else {
-             return `Crafting ${itemName} is not fully implemented (bot.recipesFor not available). Only plank crafting supported.`;
+          return `Crafting ${normalizedItemName} is not fully implemented (bot.recipesFor not available)`;
         }
 
       } catch (error: any) {
