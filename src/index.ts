@@ -40,6 +40,10 @@ const botConfig = {
 
 // Create bot
 const bot = mineflayer.createBot(botConfig);
+// Import IndexedData type
+import { IndexedData } from 'minecraft-data';
+// Initialize mcData instance - will be set in 'spawn'
+let mcDataInstance: IndexedData;
 
 // --- Agent Core Components ---
 const memoryManager = new MemoryManager();
@@ -74,10 +78,16 @@ bot.once('spawn', async () => {
   try {
     // Initialize pathfinder plugin
     bot.loadPlugin(pathfinder.pathfinder);
-    // Fix mcData initialization by passing only the version
-    const mcDataInstance = mcData(bot.version);
-    // Create Movements using only the bot (mcDataInstance is used internally)
-    const defaultMove = new pathfinder.Movements(bot);
+    // Initialize mcData here now that bot.version is available
+    mcDataInstance = mcData(bot.version);
+    if (!mcDataInstance) {
+        console.error(`CRITICAL: Failed to load minecraft-data for version ${bot.version}. Many actions will fail.`);
+        // Optionally stop the bot or prevent loop start
+        return;
+    }
+    console.log(`minecraft-data loaded for version ${bot.version}.`);
+    // Create Movements using the bot and mcDataInstance
+    const defaultMove = new pathfinder.Movements(bot, mcDataInstance); // Pass mcDataInstance
     defaultMove.allowSprinting = true;
     defaultMove.canDig = true;
     bot.pathfinder.setMovements(defaultMove);
@@ -247,10 +257,17 @@ async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentS
   if (actionName && actions[actionName]) {
     try {
       console.log(`[ActNode] Executing action: ${actionName} with args: ${args.join(', ')}`);
-      // Pass the current state (from wrapper) to the action execution context
-      result = await actions[actionName].execute(bot, args, currentState);
-      executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error');
-      console.log(`[ActNode] Action Result: ${result}`);
+      // Pass the current state (from wrapper) and mcDataInstance to the action execution context
+      if (!mcDataInstance) {
+          // This check prevents runtime errors if spawn failed silently
+          result = "Critical Error: mcDataInstance is not initialized. Cannot execute action.";
+          console.error(`[ActNode] ${result}`);
+          executionSuccess = false;
+      } else {
+          result = await actions[actionName].execute(bot, mcDataInstance, args, currentState);
+          executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error');
+          console.log(`[ActNode] Action Result: ${result}`);
+      }
     } catch (error: unknown) {
       result = `Failed to execute ${actionName}: ${error instanceof Error ? error.message : String(error)}`;
       console.error(`[ActNode] ${result}`);
@@ -319,12 +336,11 @@ workflow.addNode("observe", runObserveNodeWrapper);
 workflow.addNode("think", runThinkNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 
-// Define edges - Cast node names to any to bypass strict type checking for now
-// This might indicate a version mismatch or incorrect setup - investigate further if runtime issues persist
-workflow.setEntryPoint("observe" as any);
-workflow.addEdge("observe" as any, "think" as any);
-workflow.addEdge("think" as any, "act" as any);
-workflow.addEdge("act" as any, "observe" as any); // Loop back
+// Define edges
+workflow.setEntryPoint("observe"); // Start with observation
+workflow.addEdge("observe", "think"); // After observing, think
+workflow.addEdge("think", "act");   // After thinking, act
+workflow.addEdge("act", "observe"); // After acting, observe again (loop)
 
 // Compile the graph
 const app = workflow.compile();
@@ -350,9 +366,7 @@ async function startAgentLoop() {
 
     // The loop continuously processes state updates from the graph stream
     // Pass the initial AgentState wrapper to the stream
-    // Add type assertion to help TypeScript understand the stream type
-    const stream = app.stream({ state: currentAgentState }, streamConfig) as AsyncIterable<any>;
-    for await (const event of stream) {
+    for await (const event of app.stream({ state: currentAgentState }, streamConfig)) {
         // The event object contains the output of the node that just ran,
         // keyed by the node name. The 'state' channel is automatically updated.
 

@@ -1,5 +1,6 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { IndexedData } from 'minecraft-data'; // Import type
 import { Coder } from '../coder'; // Assuming Coder is in the parent directory
 import { config } from 'dotenv';
 
@@ -8,7 +9,7 @@ config(); // Load .env variables
 export const generateAndExecuteCodeAction: Action = {
   name: 'generateAndExecuteCode',
   description: 'Generates and executes JavaScript code using an LLM to perform a complex or novel task described in natural language. Use for tasks not covered by other specific actions. Input args: <task description string>',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     const taskDescription = args.join(' ');
     if (!taskDescription) {
       return "Error: No task description provided for code generation.";

@@ -1,10 +1,11 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { IndexedData } from 'minecraft-data'; // Import type
 
 export const dropItemAction: Action = {
   name: 'dropItem',
   description: 'Drop items from inventory. Args: <itemName> <count>',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     const [itemName, countStr] = args;
     const count = parseInt(countStr, 10) || 1; // Default to dropping 1 if count is invalid/missing
     if (!itemName) return "No item name specified to drop.";
@@ -19,10 +20,10 @@ export const dropItemAction: Action = {
     // --- End Inventory Check ---
 
     try {
-        // Find the item type ID needed for bot.toss
-        const itemToDropData = bot.registry.itemsByName[itemName];
+        // Find the item type ID needed for bot.toss using passed mcData
+        const itemToDropData = mcData.itemsByName[itemName];
         if (!itemToDropData) {
-            return `Item type '${itemName}' not found in bot registry. Cannot drop.`;
+            return `Item type '${itemName}' not found in mcData. Cannot drop.`;
         }
 
         // Use bot.toss (requires item type ID, optional metadata, count)

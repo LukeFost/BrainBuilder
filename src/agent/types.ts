@@ -27,11 +27,15 @@ export interface State {
     food?: number;   // Add food/hunger
   }
 
+  // Import necessary types (adjust path if needed)
+  import { IndexedData } from 'minecraft-data';
+  import { Bot } from 'mineflayer'; // Use specific Bot type
+
   export interface Action {
     name: string;
     description: string;
-    // Update execute signature to include State
-    execute: (bot: any, args: string[], currentState: State) => Promise<string>;
+    // Update execute signature to include Bot, mcData, args, and State
+    execute: (bot: Bot, mcData: IndexedData, args: string[], currentState: State) => Promise<string>;
   }
 
   // ... rest of the file remains the same

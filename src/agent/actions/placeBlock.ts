@@ -1,37 +1,14 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
-import * as mcDataModule from 'minecraft-data';
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { IndexedData } from 'minecraft-data'; // Import type
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3'; // Import Vec3
-
-// Simplified mcData import (adjust as needed or use a utility)
-// Handle both CommonJS and ES module versions of minecraft-data
-const mcData = (version: string) => {
-  try {
-    if (typeof mcDataModule === 'function') {
-      return mcDataModule(version);
-    } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
-      return mcDataModule.default(version);
-    } else {
-      // Direct require as fallback
-      return require('minecraft-data')(version);
-    }
-  } catch (error: any) {
-    console.error(`[mcData] Error initializing minecraft-data for version ${version}:`, error);
-    // Last resort fallback - direct require with error handling
-    try {
-      return require('minecraft-data')(version);
-    } catch (e: any) {
-      console.error(`[mcData] Critical failure loading minecraft-data:`, e);
-      throw new Error(`Unable to initialize minecraft-data for version ${version}: ${e.message}`);
-    }
-  }
-};
+import { Block } from 'prismarine-block'; // Import Block type
 
 export const placeBlockAction: Action = {
   name: 'placeBlock',
   description: 'Place a block at a specific position. Args: <blockType> <x> <y> <z>',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     const [blockType, xStr, yStr, zStr] = args;
     const targetPos = new Vec3(parseFloat(xStr), parseFloat(yStr), parseFloat(zStr)); // Use Vec3
 
@@ -59,7 +36,7 @@ export const placeBlockAction: Action = {
 
     // Real mode with pathfinder
     try {
-        const dataForVersion = mcData(bot.version as string);
+        // Use the passed mcData instance
 
         // 1. Get item from bot's inventory (needed for bot.equip)
         // We already checked the state, but bot.equip needs the actual item object.
@@ -71,7 +48,8 @@ export const placeBlockAction: Action = {
         }
 
         // 2. Check reachability
-        const reachDistance = bot.blockInteractionRange || 4.5; // Default reach is around 4.5 blocks
+        // Use a fixed reach distance as bot.blockInteractionRange might not exist
+        const reachDistance = 4.5;
         if (bot.entity.position.distanceTo(targetPos) > reachDistance + 1) { // Add buffer
              // If too far, try moving closer first before detailed checks
              console.log(`[Action:placeBlock] Target position ${targetPos} is too far (${bot.entity.position.distanceTo(targetPos).toFixed(2)} > ${reachDistance}). Moving closer.`);
@@ -89,7 +67,7 @@ export const placeBlockAction: Action = {
         }
 
         // 3. Find a valid reference block and face vector
-        let referenceBlock: mineflayer.Block | null = null;
+        let referenceBlock: Block | null = null; // Use imported Block type
         let faceVector: Vec3 | null = null;
         const possibleFaces = [
             new Vec3(0, -1, 0), // Place on block below (face is up)

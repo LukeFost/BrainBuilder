@@ -1,15 +1,18 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { IndexedData } from 'minecraft-data'; // Import type
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder';
+import { Block } from 'prismarine-block'; // Import Block type
 
 export const sleepAction: Action = {
   name: 'sleep',
   description: 'Sleep in a nearby bed. Args: None',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     try {
-      // Find a bed nearby
-      const bed = bot.findBlock({
-        matching: (block: any) => bot.isABed(block), // Use helper function
+      // Find a bed nearby using mcData
+      const bedBlockIds = new Set(mcData.beds.map(id => mcData.blocks[id].id)); // Get IDs of all bed blocks
+      const bed: Block | null = bot.findBlock({
+        matching: (block: Block) => bedBlockIds.has(block.type), // Check if block type is in the set of bed IDs
         maxDistance: 10 // Search within 10 blocks
       });
 

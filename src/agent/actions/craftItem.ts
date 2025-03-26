@@ -1,35 +1,12 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
-import * as mcDataModule from 'minecraft-data';
-
-// Simplified mcData import (adjust as needed or use a utility)
-// Handle both CommonJS and ES module versions of minecraft-data
-const mcData = (version: string) => {
-  try {
-    if (typeof mcDataModule === 'function') {
-      return mcDataModule(version);
-    } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
-      return mcDataModule.default(version);
-    } else {
-      // Direct require as fallback
-      return require('minecraft-data')(version);
-    }
-  } catch (error: any) {
-    console.error(`[mcData] Error initializing minecraft-data for version ${version}:`, error);
-    // Last resort fallback - direct require with error handling
-    try {
-      return require('minecraft-data')(version);
-    } catch (e: any) {
-      console.error(`[mcData] Critical failure loading minecraft-data:`, e);
-      throw new Error(`Unable to initialize minecraft-data for version ${version}: ${e.message}`);
-    }
-  }
-};
+import { Bot, Recipe } from 'mineflayer'; // Use specific Bot type, import Recipe
+import { IndexedData } from 'minecraft-data'; // Import type
+import { Block } from 'prismarine-block'; // Import Block type for crafting table arg
 
 export const craftItemAction: Action = {
   name: 'craftItem',
   description: 'Craft an item. Args: <itemName> <count>',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     const [itemName, countStr] = args;
     const count = parseInt(countStr, 10) || 1;
     console.log(`[Action:craftItem] Attempting to craft ${count} ${itemName}`);
@@ -43,12 +20,11 @@ export const craftItemAction: Action = {
     // Add other normalizations if needed (e.g., 'log' -> 'oak_log')
 
     try {
-      const dataForVersion = mcData(bot.version as string);
-
+      // Use the passed mcData instance
       // Check if item exists in minecraft-data
-      const itemToCraft = dataForVersion.itemsByName[normalizedItemName];
+      const itemToCraft = mcData.itemsByName[normalizedItemName];
       if (!itemToCraft) {
-        console.error(`[Action:craftItem] Item '${normalizedItemName}' not found in minecraft-data`);
+        console.error(`[Action:craftItem] Item '${normalizedItemName}' not found in mcData`);
         return `Item '${normalizedItemName}' not found in minecraft-data`;
       }
 
@@ -85,12 +61,12 @@ export const craftItemAction: Action = {
             // Find the recipe for planks (usually requires 1 log)
             const recipes = bot.recipesFor(itemToCraft.id, null, 1, null); // Hand craft
             if (recipes.length > 0) {
-              const recipe = recipes[0];
+              const recipe: Recipe = recipes[0]; // Add type annotation
               // Craft enough times to get the desired plank count
               // We need 'requiredLogs' number of logs to make 'count' planks
               // The recipe usually takes 1 log and makes 4 planks.
               // We need to call craft 'requiredLogs' times.
-              await bot.craft(recipe, requiredLogs, null); // Craft 'requiredLogs' times
+              await bot.craft(recipe, requiredLogs, undefined); // Pass undefined instead of null
               // DO NOT update state inventory here. ObserveManager will handle it.
               return `Crafted ${requiredLogs * 4} ${normalizedItemName} from ${requiredLogs} ${actualLogType}`;
             } else {
@@ -108,7 +84,8 @@ export const craftItemAction: Action = {
       // --- General Recipe Logic ---
       if (bot.recipesFor) {
         // Try hand recipe first
-        const handRecipe = bot.recipesFor(itemToCraft.id, null, 1, null)[0];
+        const handRecipes = bot.recipesFor(itemToCraft.id, null, 1, null);
+        const handRecipe: Recipe | undefined = handRecipes[0]; // Add type annotation
         if (handRecipe) {
           console.log(`[Action:craftItem] Found hand recipe for ${normalizedItemName}. Checking ingredients in state.`);
 
@@ -120,7 +97,7 @@ export const craftItemAction: Action = {
           if (handRecipe.delta) {
             for (const ingredient of handRecipe.delta) {
               if (ingredient.count < 0) { // Negative count means ingredient is consumed
-                const ingredientItem = dataForVersion.items[ingredient.id];
+                const ingredientItem = mcData.items[ingredient.id]; // Use passed mcData
                 const ingredientName = ingredientItem?.name;
                 const requiredCount = -ingredient.count * count; // Total needed for the desired count
                 if (!ingredientName) {
@@ -140,7 +117,7 @@ export const craftItemAction: Action = {
           }
 
           if (canCraft) {
-            await bot.craft(handRecipe, count, null); // Craft using hand
+            await bot.craft(handRecipe, count, undefined); // Pass undefined instead of null
             console.log(`[Action:craftItem] bot.craft called for ${count} ${normalizedItemName} (hand)`);
             // DO NOT update state inventory here.
             return `Crafted ${count} ${normalizedItemName}`;
@@ -152,10 +129,11 @@ export const craftItemAction: Action = {
         }
 
         // If no hand recipe, check for recipe requiring crafting table
-        const tableRecipe = bot.recipesFor(itemToCraft.id, null, 1, true)[0]; // craftingTable = true
+        const tableRecipes = bot.recipesFor(itemToCraft.id, null, 1, true); // craftingTable = true
+        const tableRecipe: Recipe | undefined = tableRecipes[0]; // Add type annotation
         if (tableRecipe) {
-          const craftingTableBlock = bot.findBlock({
-            matching: dataForVersion.blocksByName['crafting_table']?.id,
+          const craftingTableBlock: Block | null = bot.findBlock({ // Add type annotation
+            matching: mcData.blocksByName['crafting_table']?.id, // Use passed mcData
             maxDistance: 4 // Check within reasonable distance
           });
 
@@ -173,7 +151,7 @@ export const craftItemAction: Action = {
           if (tableRecipe.delta) {
             for (const ingredient of tableRecipe.delta) {
               if (ingredient.count < 0) {
-                const ingredientItem = dataForVersion.items[ingredient.id];
+                const ingredientItem = mcData.items[ingredient.id]; // Use passed mcData
                 const ingredientName = ingredientItem?.name;
                 const requiredCount = -ingredient.count * count;
                 if (!ingredientName) {

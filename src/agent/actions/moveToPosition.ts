@@ -1,11 +1,12 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { IndexedData } from 'minecraft-data'; // Import type
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder';
 
 export const moveToPositionAction: Action = {
   name: 'moveToPosition',
   description: 'Move to a specific position. Args: <x> <y> <z>',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     const [xStr, yStr, zStr] = args;
     const x = parseFloat(xStr);
     const y = parseFloat(yStr);

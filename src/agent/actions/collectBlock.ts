@@ -1,36 +1,12 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
-import * as mcDataModule from 'minecraft-data';
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { IndexedData } from 'minecraft-data'; // Import type
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder';
-
-// Simplified mcData import (adjust as needed or use a utility)
-// Handle both CommonJS and ES module versions of minecraft-data
-const mcData = (version: string) => {
-  try {
-    if (typeof mcDataModule === 'function') {
-      return mcDataModule(version);
-    } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
-      return mcDataModule.default(version);
-    } else {
-      // Direct require as fallback
-      return require('minecraft-data')(version);
-    }
-  } catch (error: any) {
-    console.error(`[mcData] Error initializing minecraft-data for version ${version}:`, error);
-    // Last resort fallback - direct require with error handling
-    try {
-      return require('minecraft-data')(version);
-    } catch (e: any) {
-      console.error(`[mcData] Critical failure loading minecraft-data:`, e);
-      throw new Error(`Unable to initialize minecraft-data for version ${version}: ${e.message}`);
-    }
-  }
-};
 
 export const collectBlockAction: Action = {
   name: 'collectBlock',
   description: 'Collect a specific type of block. Args: <blockType> <count>',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     const [blockType, countStr] = args;
     const count = parseInt(countStr, 10) || 1;
     let collectedCount = 0; // Tracks how many were successfully collected in *this* execution
@@ -40,16 +16,14 @@ export const collectBlockAction: Action = {
 
     // --- Inventory Pre-Check (Using State) ---
     let actualBlockTypeForCheck = blockType;
-    try {
-        const dataForVersionCheck = mcData(bot.version as string);
-        // Handle common block name variations for the check
-        if (blockType === 'wood' || blockType === 'log') {
-            const logTypesCheck = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
-            for (const logType of logTypesCheck) {
-                if (dataForVersionCheck.blocksByName[logType]) {
-                    actualBlockTypeForCheck = logType; // Use the first specific log type found for checking inventory
-                    break;
-                }
+    // Use the passed mcData instance
+    // Handle common block name variations for the check
+    if (blockType === 'wood' || blockType === 'log') {
+        const logTypesCheck = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+        for (const logType of logTypesCheck) {
+            if (mcData.blocksByName[logType]) {
+                actualBlockTypeForCheck = logType; // Use the first specific log type found for checking inventory
+                break;
             }
         }
     } catch (e) { /* ignore mcData errors during check */ }
@@ -78,14 +52,13 @@ export const collectBlockAction: Action = {
 
     // Real mode with pathfinder
     try {
-      const dataForVersion = mcData(bot.version as string);
-
+      // Use the passed mcData instance
       // Handle common block name variations
       let actualBlockType = blockType;
       if (blockType === 'wood' || blockType === 'log') {
         const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
         for (const logType of logTypes) {
-          if (dataForVersion.blocksByName[logType]) {
+          if (mcData.blocksByName[logType]) {
             actualBlockType = logType;
             console.log(`[Action:collectBlock] Translating '${blockType}' to specific block type: ${actualBlockType}`);
             break;
@@ -93,9 +66,9 @@ export const collectBlockAction: Action = {
         }
       }
 
-      const blockData = dataForVersion.blocksByName[actualBlockType];
+      const blockData = mcData.blocksByName[actualBlockType];
       if (!blockData) {
-        return `Block type '${actualBlockType}' (from '${blockType}') not found in minecraft-data`;
+        return `Block type '${actualBlockType}' (from '${blockType}') not found in mcData`;
       }
       const blockId = blockData.id;
       // Calculate how many more we *attempt* to collect in this run

@@ -1,11 +1,12 @@
 import { Action, State } from '../types';
-import * as mineflayer from 'mineflayer';
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { IndexedData } from 'minecraft-data'; // Import type
 import { goals as PathfinderGoals } from 'mineflayer-pathfinder';
 
 export const attackEntityAction: Action = {
   name: 'attackEntity',
   description: 'Attack a nearby entity. Args: <entityName>',
-  execute: async (bot: mineflayer.Bot, args: string[], currentState: State): Promise<string> => {
+  execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     const [entityName] = args;
     if (!entityName) return "No entity name specified for attack.";
 
