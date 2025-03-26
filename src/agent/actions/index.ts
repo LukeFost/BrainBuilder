@@ -28,3 +28,14 @@ export const actions: Record<string, Action> = {
   askForHelp: askForHelpAction,
   generateAndExecuteCode: generateAndExecuteCodeAction,
 };
+import { craftItemAction } from './craftItem';
+import { collectBlockAction } from './collectBlock';
+import { sleepAction } from './sleep';
+import { wakeUpAction } from './wakeUp';
+
+export const actions = {
+  collectBlock: collectBlockAction,
+  craftItem: craftItemAction,
+  sleep: sleepAction,
+  wakeUp: wakeUpAction,
+};
