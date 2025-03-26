@@ -118,15 +118,22 @@ export const craftItemAction: Action = {
           }
 
           if (canCraft) {
+            console.log(`[Action:craftItem] State inventory check passed for hand recipe: ${normalizedItemName}. Required: ${JSON.stringify(handRecipe.delta?.filter(d => d.count < 0))}. State: ${JSON.stringify(currentState.inventory.items)}`);
             // Check if goal changed before crafting
             if (currentState.currentGoal === "Waiting for instructions") {
                 console.log(`[Action:craftItem] Stopping action due to changed goal.`);
                 return "Action stopped by user.";
             }
-            await bot.craft(handRecipe, count, undefined); // Pass undefined instead of null
-            console.log(`[Action:craftItem] bot.craft called for ${count} ${normalizedItemName} (hand)`);
-            // DO NOT update state inventory here.
-            return `Crafted ${count} ${normalizedItemName}`;
+            try {
+                await bot.craft(handRecipe, count, undefined); // Pass undefined instead of null
+                console.log(`[Action:craftItem] bot.craft call succeeded for ${count} ${normalizedItemName} (hand)`);
+                // DO NOT update state inventory here.
+                return `Crafted ${count} ${normalizedItemName}`;
+            } catch (craftError: any) {
+                 console.error(`[Action:craftItem] bot.craft (hand) failed for ${normalizedItemName}:`, craftError);
+                 // Provide a more specific error message if possible
+                 return `Failed to craft ${normalizedItemName} (hand): ${craftError.message || craftError}`;
+            }
           } else {
             const message = `Not enough ingredients in state for hand craft ${count} ${normalizedItemName}. Missing: ${missingIngredients.join(', ')}`;
             console.log(`[Action:craftItem] ${message}`);
@@ -179,15 +186,22 @@ export const craftItemAction: Action = {
           }
 
           if (canCraftWithTable) {
+            console.log(`[Action:craftItem] State inventory check passed for table recipe: ${normalizedItemName}. Required: ${JSON.stringify(tableRecipe.delta?.filter(d => d.count < 0))}. State: ${JSON.stringify(currentState.inventory.items)}`);
             // Check if goal changed before crafting
             if (currentState.currentGoal === "Waiting for instructions") {
                 console.log(`[Action:craftItem] Stopping action due to changed goal.`);
                 return "Action stopped by user.";
             }
-            await bot.craft(tableRecipe, count, craftingTableBlock); // Craft using table
-            console.log(`[Action:craftItem] bot.craft called for ${count} ${normalizedItemName} using crafting table.`);
-            // DO NOT update state inventory here.
-            return `Crafted ${count} ${normalizedItemName} using crafting table`;
+            try {
+                await bot.craft(tableRecipe, count, craftingTableBlock); // Craft using table
+                console.log(`[Action:craftItem] bot.craft call succeeded for ${count} ${normalizedItemName} using crafting table.`);
+                // DO NOT update state inventory here.
+                return `Crafted ${count} ${normalizedItemName} using crafting table`;
+            } catch (craftError: any) {
+                 console.error(`[Action:craftItem] bot.craft (table) failed for ${normalizedItemName}:`, craftError);
+                 // Provide a more specific error message if possible
+                 return `Failed to craft ${normalizedItemName} (table): ${craftError.message || craftError}`;
+            }
           } else {
             const message = `Not enough ingredients in state for table craft ${count} ${normalizedItemName}. Missing: ${missingTableIngredients.join(', ')}`;
             console.log(`[Action:craftItem] ${message}`);
