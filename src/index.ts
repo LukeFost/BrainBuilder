@@ -454,75 +454,82 @@ const app = workflow.compile();
 
 
 // --- LangGraph Agent Loop ---
+// Replace the entire body of startAgentLoop with this:
 async function startAgentLoop() {
   console.log('Starting LangGraph agent loop...');
+  const streamConfig: RunnableConfig = { recursionLimit: 300 }; // Config for invoke
 
   try {
-    // Initial observation to populate state before the loop starts feeding it
+    // --- Initial observation (remains outside the loop) ---
     console.log("--- Initial Observation ---");
     // Use the wrapper node function for consistency, passing the initial AgentState
     const initialObservationResult = await runObserveNodeWrapper({ state: currentAgentState });
     if (initialObservationResult.state) {
         currentAgentState = initialObservationResult.state; // Update shared state from the wrapper's result
+        console.log("Initial State Populated:", JSON.stringify(currentAgentState, null, 2)); // Log initial state clearly
+    } else {
+        console.error("Failed to get initial state from observation.");
+        return; // Stop if initial observation fails
     }
-    console.log("Initial State Populated:", currentAgentState);
+    // --- End Initial Observation ---
 
 
-    // Use app.stream to run the graph loop
-    const streamConfig: RunnableConfig = { recursionLimit: 300 }; // Increased recursion limit
+    // --- Main Agent Loop ---
+    while (true) { // Add this loop
+      try {
+        // Check if there's an active goal before invoking the graph
+        if (!currentAgentState.currentGoal || currentAgentState.currentGoal === "Waiting for instructions") {
+          // console.log("[Agent Loop] No active goal. Waiting..."); // Optional log
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+          continue; // Skip to the next iteration, checking the goal again
+        }
 
-    // The loop continuously processes state updates from the graph stream
-    // Pass the initial AgentState wrapper to the stream
-    const stream = await app.stream({ state: currentAgentState }, streamConfig);
-    for await (const event of stream) {
-        // The event object contains the output of the node that just ran,
-        // keyed by the node name. The 'state' channel is automatically updated.
+        console.log(`--- Starting New Graph Invocation for Goal: "${currentAgentState.currentGoal}" ---`);
 
-        // Log based on which node's output is present in the event
-        if (event.observe) {
-            console.log("\n=== Cycle End: OBSERVE ===");
-            // Update the shared state from the graph's latest state channel value
-            // Note: LangGraph automatically merges the output state into the channel
-            // We update our external `currentAgentState` to reflect the graph's internal state
-            currentAgentState = event.observe.state;
-            console.log("Shared State Updated After Observe");
-        } else if (event.think) {
-            console.log("\n=== Cycle End: THINK ===");
-            currentAgentState = event.think.state;
-            console.log("Shared State Updated After Think. Next Action:", currentAgentState.lastAction);
-        } else if (event.act) {
-            console.log("\n=== Cycle End: ACT ===");
-            currentAgentState = event.act.state;
-            console.log("Shared State Updated After Act. Result:", currentAgentState.lastActionResult);
-            // Optional delay after acting
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        } else if (event.resultAnalysis) {
-            console.log("\n=== Cycle End: RESULT ANALYSIS ===");
-            currentAgentState = event.resultAnalysis.state;
-            console.log("Shared State Updated After Result Analysis");
+        // Invoke the graph with the current state wrapped in AgentState
+        // The result will be the final AgentState when the graph run finishes (hits END or limit)
+        const result: AgentState | undefined = await app.invoke({ state: currentAgentState }, streamConfig);
+
+        // Update the shared state with the final result of the graph execution
+        if (result && result.state) {
+            currentAgentState = result.state; // Update shared state with the final state from the graph run
+            console.log("=== Graph Invocation Complete ===");
+            // Check if the graph ended because the goal was completed
+            if (currentAgentState.currentGoal === "Waiting for instructions") {
+                 console.log("Goal completed! Waiting for new instructions...");
+                 // No need to chat here, the 'think' node should have handled the 'askForHelp' action
+            }
+            // console.log("Final State after invocation:", JSON.stringify(currentAgentState, null, 2)); // Optional detailed log
         } else {
-             // This might happen for intermediate steps or if __end__ is reached
-             console.log("Graph stream event without specific node output:", event);
+            console.warn("[Agent Loop] Graph invocation finished with unexpected result:", result);
+            // Avoid getting stuck, maybe force observation or wait
+             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
-        // Goal completion condition: Reset goal state but keep the loop running
-        if (currentAgentState.lastAction && 
-            (currentAgentState.lastAction.includes("goal has been achieved") || 
-             currentAgentState.lastAction.includes("Goal completed!"))) {
-          console.log("Goal completed! Waiting for new instructions...");
-          bot.chat("I've completed my goal! What would you like me to do next?");
-          // Don't break the loop, just reset the goal to wait for new instructions
-          currentAgentState.currentGoal = "Waiting for instructions";
-          currentAgentState.currentPlan = undefined;
-          // Continue the loop
-        }
-    }
-    console.log("Agent loop finished or was interrupted.");
+        // Optional: Add a small delay between cycles even when active,
+        // but ensure it doesn't interfere with responsiveness
+        // await new Promise(resolve => setTimeout(resolve, 500));
 
-  } catch (error: unknown) {
-    console.error('Error running LangGraph agent loop:', error instanceof Error ? error.message : error);
-    if (error instanceof Error && error.stack) {
-        console.error(error.stack);
-    }
+      } catch (error: unknown) {
+        console.error('[Agent Loop] Error during graph invocation:', error);
+        // Update state to reflect error? Maybe set lastActionResult
+        currentAgentState = {
+            ...currentAgentState,
+            lastActionResult: `Error during agent cycle: ${error instanceof Error ? error.message : String(error)}`,
+            // Consider resetting the plan or goal depending on the error severity
+            // currentPlan: undefined,
+            // currentGoal: "Investigate and recover from error" // Or similar
+        };
+        // Add a delay before retrying after an error
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    } // End while(true) loop
+
+  } catch (error) {
+    console.error('Critical error during agent initialization or loop setup:', error);
+  } finally {
+    console.log('Agent loop finished or was interrupted.');
+    // Perform any cleanup here if needed
+    await memoryManager.saveMemory(); // Ensure memory is saved on exit/crash
   }
 }
