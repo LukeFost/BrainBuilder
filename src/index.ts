@@ -364,7 +364,7 @@ async function startAgentLoop() {
 
 
     // Use app.stream to run the graph loop
-    const streamConfig: RunnableConfig = { recursionLimit: 150 }; // Adjust recursion limit as needed
+    const streamConfig: RunnableConfig = { recursionLimit: 300 }; // Increased recursion limit
 
     // The loop continuously processes state updates from the graph stream
     // Pass the initial AgentState wrapper to the stream
@@ -396,11 +396,14 @@ async function startAgentLoop() {
              console.log("Graph stream event without specific node output:", event);
         }
 
-        // Optional: Add termination condition check here if needed
-        // if (some_condition(currentAgentState)) {
-        //   console.log("Agent loop terminating.");
-        //   break; // Exit the for await loop
-        // }
+        // Termination condition: Check if goal is completed or if bot is asking for a new goal
+        if (currentAgentState.lastAction && 
+            (currentAgentState.lastAction.includes("goal has been achieved") || 
+             currentAgentState.lastAction.includes("Goal completed!"))) {
+          console.log("Agent loop terminating: Goal completed!");
+          bot.chat("I've completed my goal! What would you like me to do next?");
+          break; // Exit the for await loop
+        }
     }
     console.log("Agent loop finished or was interrupted.");
 

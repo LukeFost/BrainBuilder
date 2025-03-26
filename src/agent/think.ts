@@ -13,6 +13,16 @@ export class ThinkManager {
 
   async think(currentState: State): Promise<Partial<State>> {
     console.log("--- Running Think Manager ---");
+    
+    // Check if goal is already completed before doing anything else
+    if (this.isGoalCompleted(currentState)) {
+      console.log("[ThinkManager] Goal already completed!");
+      return { 
+        lastAction: "askForHelp The goal has been achieved! What would you like me to do next?",
+        currentPlan: undefined 
+      };
+    }
+    
     let needsReplan = false;
     let reason = "";
 
@@ -110,5 +120,55 @@ export class ThinkManager {
       nextAction = 'lookAround';
       return { lastAction: nextAction, currentPlan: [nextAction] }; // Provide a minimal plan
     }
+  }
+  
+  /**
+   * Determines if the current goal has been completed based on inventory and other state
+   */
+  private isGoalCompleted(state: State): boolean {
+    // Parse the current goal
+    const goal = state.currentGoal || '';
+    
+    // Check for "Collect X oak_log and craft a crafting_table" pattern
+    if (goal.match(/collect\s+(\d+)\s+oak_log\s+and\s+craft\s+a\s+crafting_table/i)) {
+      const match = goal.match(/collect\s+(\d+)\s+oak_log/i);
+      const requiredLogs = match ? parseInt(match[1]) : 0;
+      
+      // Check if we have enough logs and at least one crafting table
+      const hasEnoughLogs = (state.inventory.items['oak_log'] || 0) >= requiredLogs;
+      const hasCraftingTable = (state.inventory.items['crafting_table'] || 0) >= 1;
+      
+      if (hasEnoughLogs && hasCraftingTable) {
+        console.log(`[ThinkManager] Goal completed! Has ${state.inventory.items['oak_log'] || 0}/${requiredLogs} oak_log and ${state.inventory.items['crafting_table'] || 0} crafting_table`);
+        return true;
+      }
+      return false;
+    }
+    
+    // Add more goal completion checks for other common goals
+    if (goal.toLowerCase().includes('explore')) {
+      // For exploration goals, we can consider them completed after a certain number of actions
+      // or after visiting a certain number of unique locations
+      const actionCount = state.memory.shortTerm.filter(m => m.startsWith('Action:')).length;
+      if (actionCount >= 10) {
+        console.log(`[ThinkManager] Exploration goal considered complete after ${actionCount} actions`);
+        return true;
+      }
+    }
+    
+    // For collecting specific items
+    const collectMatch = goal.match(/collect\s+(\d+)\s+([a-z_]+)/i);
+    if (collectMatch) {
+      const requiredCount = parseInt(collectMatch[1]);
+      const itemName = collectMatch[2].toLowerCase();
+      const currentCount = state.inventory.items[itemName] || 0;
+      
+      if (currentCount >= requiredCount) {
+        console.log(`[ThinkManager] Collection goal completed! Has ${currentCount}/${requiredCount} ${itemName}`);
+        return true;
+      }
+    }
+    
+    return false;
   }
 }
