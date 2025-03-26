@@ -19,8 +19,35 @@ export class ThinkManager {
       console.log("[ThinkManager] Goal already completed!");
       return { 
         lastAction: "askForHelp The goal has been achieved! What would you like me to do next?",
-        currentPlan: undefined 
+        currentPlan: undefined,
+        currentGoal: "Waiting for instructions" // Set the goal to waiting state
       };
+    }
+    
+    // Special handling for "Waiting for instructions" state
+    if (currentState.currentGoal === 'Waiting for instructions') {
+      // If we've already asked for help multiple times, do something else to break the loop
+      const recentActions = currentState.memory.shortTerm.slice(-5);
+      const askForHelpCount = recentActions.filter(action => 
+        action.includes('askForHelp') && 
+        (action.includes('What would you like me to do next?') || 
+         action.includes('goal has been achieved'))
+      ).length;
+      
+      if (askForHelpCount >= 2) {
+        // Do something different to break the loop - explore or just wait
+        console.log("[ThinkManager] Breaking help request loop with exploration");
+        return {
+          lastAction: "lookAround",
+          currentPlan: ["lookAround", "moveToPosition 30 144 33", "lookAround"]
+        };
+      } else {
+        // Ask for help, but only once or twice
+        return {
+          lastAction: "askForHelp What would you like me to do next?",
+          currentPlan: ["askForHelp What would you like me to do next?"]
+        };
+      }
     }
     
     // Check if it's night time and we should sleep
@@ -147,6 +174,11 @@ export class ThinkManager {
     // Parse the current goal
     const goal = state.currentGoal || '';
     
+    // If we're already in "Waiting for instructions" state, don't treat it as completed
+    if (goal === 'Waiting for instructions') {
+      return false;
+    }
+    
     // Check for "Collect X oak_log and craft a crafting_table" pattern
     if (goal.match(/collect\s+(\d+)\s+oak_log\s+and\s+craft\s+a\s+crafting_table/i)) {
       const match = goal.match(/collect\s+(\d+)\s+oak_log/i);
@@ -235,6 +267,6 @@ export class ThinkManager {
     const isSleeping = state.lastAction === "sleep" && 
                       state.lastActionResult?.toLowerCase().includes("sleeping");
     
-    return isDayTime && isSleeping;
+    return isDayTime && (isSleeping === true);
   }
 }
