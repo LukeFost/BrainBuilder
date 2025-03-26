@@ -111,8 +111,8 @@ bot.once('spawn', async () => {
 
   planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository); // Pass API key and skills
   thinkManager = new ThinkManager(planner); // Pass the planner instance
-  // Pass mcDataInstance to ObserveManager constructor
-  observeManager = new ObserveManager(bot, mcDataInstance);
+  // Pass mcDataInstance AND memoryManager to ObserveManager constructor
+  observeManager = new ObserveManager(bot, mcDataInstance, memoryManager);
   validateManager = new ValidateManager();
   resultAnalysisManager = new ResultAnalysisManager();
 
@@ -243,12 +243,14 @@ async function runObserveNode(state: State): Promise<Partial<State>> {
     // Return state update
     return { lastActionResult: "Error: Core components not ready." };
   } else {
-    // Get the observation updates
+    // Get the observation updates (surroundings, inventory)
     const observationResult = await observeManager.observe(state);
-    // Update memory
+    // Memory (including spatial) is updated internally by ObserveManager now
+    // Return only the direct observation updates
     return {
-      ...observationResult,
-      memory: memoryManager.fullMemory
+      inventory: observationResult.inventory,
+      surroundings: observationResult.surroundings
+      // DO NOT return memory here
     };
   }
 }

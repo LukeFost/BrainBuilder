@@ -29,6 +29,7 @@ export class MemoryManager {
           entityEncounters: [],
           completedGoals: [],
           failurePatterns: {},
+          spatial: {}, // Initialize spatial memory
         },
       },
     };
@@ -52,6 +53,7 @@ export class MemoryManager {
                     entityEncounters: loadedMemory.longTerm?.knowledgeBase?.entityEncounters || defaultMemory.longTerm.knowledgeBase.entityEncounters,
                     completedGoals: loadedMemory.longTerm?.knowledgeBase?.completedGoals || defaultMemory.longTerm.knowledgeBase.completedGoals,
                     failurePatterns: loadedMemory.longTerm?.knowledgeBase?.failurePatterns || defaultMemory.longTerm.knowledgeBase.failurePatterns,
+                    spatial: loadedMemory.longTerm?.knowledgeBase?.spatial || defaultMemory.longTerm.knowledgeBase.spatial, // Merge spatial memory
                 }
             },
         };
@@ -159,6 +161,24 @@ export class MemoryManager {
         await this.saveMemory();
     }
 
+    async updateSpatialMemory(updates: Record<string, SpatialMemoryEntry>): Promise<void> {
+        const currentSpatialMemory = this.memory.longTerm.knowledgeBase.spatial;
+        let changed = false;
+        for (const [coord, newEntry] of Object.entries(updates)) {
+            const existingEntry = currentSpatialMemory[coord];
+            // Add new entry or update if the new one is more recent
+            if (!existingEntry || newEntry.timestamp > existingEntry.timestamp) {
+                currentSpatialMemory[coord] = newEntry;
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            // console.log(`[MemoryManager] Updated spatial memory with ${Object.keys(updates).length} observations.`); // Optional: Verbose log
+            await this.saveMemory();
+        }
+    }
+
   get shortTerm(): RecentActionEntry[] {
             // Return a copy of the recent actions array
             return [...this.memory.shortTerm.recentActions];
@@ -187,6 +207,27 @@ export class MemoryManager {
 
             return summaries.length > 0 ? summaries.join(' | ') : 'No significant long-term memories yet.';
         }
+
+    // Getter for spatial memory summary string
+    get spatialMemorySummary(): string {
+        const spatialMemory = this.memory.longTerm.knowledgeBase.spatial;
+        const entries = Object.entries(spatialMemory);
+        if (entries.length === 0) {
+            return 'No spatial memory recorded yet.';
+        }
+
+        // Sort by timestamp (most recent first) and take top N (e.g., 10)
+        const recentEntries = entries
+            .sort(([, a], [, b]) => b.timestamp - a.timestamp)
+            .slice(0, 10); // Limit summary size
+
+        const summaryParts = recentEntries.map(([coord, entry]) => {
+            const timeAgo = Math.round((Date.now() - entry.timestamp) / 1000); // Seconds ago
+            return `${entry.blockName} at ${coord} (seen ${timeAgo}s ago)`;
+        });
+
+        return `Nearby Known Blocks (recent): ${summaryParts.join('; ')}`;
+    }
 
   get fullMemory(): StructuredMemory {
             // Return a deep copy might be safer, but for now return the structure

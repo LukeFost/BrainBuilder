@@ -52,7 +52,20 @@ export interface KnowledgeBase {
   entityEncounters: EntityEncounterEntry[];
   completedGoals: CompletedGoalEntry[];
   failurePatterns: Record<string, FailurePatternEntry>; // Use action:reason as key
+  spatial: SpatialMemory; // Add spatial memory
 }
+
+// --- Spatial Memory Types ---
+export interface SpatialMemoryEntry {
+  blockName: string;
+  timestamp: number;
+  // Future: Add entities, block state, etc.
+}
+
+// Key: "x,y,z" string
+export type SpatialMemory = Record<string, SpatialMemoryEntry>;
+// --- End Spatial Memory Types ---
+
 
 export interface LongTermMemory {
   knowledgeBase: KnowledgeBase;

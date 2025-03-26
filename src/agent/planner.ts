@@ -34,6 +34,7 @@ Recent Actions (last 5): ${state.memory.shortTerm.recentActions
             .map((entry: RecentActionEntry) => `(${new Date(entry.timestamp).toLocaleTimeString()}) ${entry.action} -> ${entry.result.substring(0, 50)}...`) // Format them
             .join(' | ') || 'None'}
 Long-term Memory Summary: ${state.memory.longTerm || 'None available'} // Getter now provides summary string
+Spatial Memory Summary: ${state.memory.spatialMemorySummary || 'None available'} // Add spatial summary
 Previous Plan Steps (if any): ${state.currentPlan?.slice(0, 5).join(' -> ') ?? 'None'}
 Last Action: ${state.lastAction || 'None'}
 Last Action Result: ${state.lastActionResult || 'None'}
@@ -68,18 +69,19 @@ Planning Guidelines:
 2.  **Decompose Goal:** Break down the high-level goal into small, sequential, actionable steps using ONLY the available actions.
 3.  **Tool Check & Crafting:** If the goal involves mining stone or ores (like coal_ore, iron_ore), the FIRST step MUST be to ensure a pickaxe of the appropriate tier is in inventory. If not, the plan MUST start with crafting the required pickaxe (e.g., \`craftItem wooden_pickaxe 1\`). Only AFTER confirming/crafting the pickaxe should \`collectBlock\` for stone/ore be planned. Wood requires an axe (or fist), dirt/sand requires a shovel (or fist). **Efficiency:** If mining multiple stone/ore blocks, consider upgrading to a stone pickaxe (\`craftItem stone_pickaxe 1\`) if cobblestone is available, as it mines faster. Plan this upgrade *before* extensive mining.
 4.  **Prerequisites:** Ensure prerequisites are met *before* attempting an action. Examples: Have logs before crafting planks. Have a crafting table *nearby* (within 4-5 blocks) for table-required crafts (like pickaxes, torches). Have the correct tool equipped for \`collectBlock\`. If crafting fails due to missing table, the next plan MUST include \`placeBlock crafting_table\` first.
-5.  **Vertical Movement / Escaping:** If the goal is to "get out", "escape", "reach surface", or move vertically significantly:
+5.  **Spatial Awareness:** Use the 'Spatial Memory Summary' to know about nearby blocks. Plan to `moveToPosition` known locations of needed blocks (like crafting tables or specific ores) if they are listed in memory and seem reachable.
+6.  **Vertical Movement / Escaping:** If the goal is to "get out", "escape", "reach surface", or move vertically significantly:
     *   Check blocks directly above. If they are breakable (dirt, stone, etc.) and you have the correct tool (pickaxe for stone), plan to \`collectBlock\` upwards.
     *   If the way up is blocked by un-breakable blocks or open air, check inventory for scaffolding blocks (like \`dirt\`, \`cobblestone\`). If available, plan to \`placeBlock\` beneath you and jump repeatedly (pillar jump) to ascend. Use \`moveToPosition\` for small adjustments if needed between placements.
     *   Use \`lookAround\` frequently during vertical movement to reassess the path.
     *   If unsure or stuck, consider using \`generateAndExecuteCode\` with a clear description like "pillar jump using dirt until Y level 140" or "dig staircase upwards to the surface".
-6.  **Resource Gathering:** Prioritize gathering all necessary raw materials for a multi-step craft or build task *before* starting the crafting/building steps.
-7.  **Efficiency:** Choose the most direct sequence. Use \`moveToPosition\` for horizontal travel or minor adjustments. Prefer digging/pillaring for vertical movement. Avoid long sequences of small \`moveToPosition\` steps.
-8.  **Error Handling:** If the 'Last Action Result' indicates a failure, the new plan MUST address the cause. Examples: If \`craftItem\` fails with 'Need crafting table nearby', the next plan MUST include \`placeBlock crafting_table\` at a suitable empty location before retrying the craft. If \`collectBlock\` fails with 'Need a suitable tool', the next plan MUST include crafting the required tool. If \`placeBlock\` fails, try a different nearby empty location. Avoid repeating the exact failed action immediately.
-9.  **Skill Usage:** Select the most appropriate action. Use \`generateAndExecuteCode\` for complex navigation or multi-step procedures not covered by basic actions.
-10. **Stuck Detection:** If the same action fails multiple times (see Last Action Result) or progress isn't being made towards the goal despite several steps, use \`askForHelp\` or try a significantly different approach (e.g., explore elsewhere if resources aren't found).
-11. **Safety:** If health is low (e.g., < 10), prioritize safety: avoid combat, find/eat food if available, or \`askForHelp\`. If hunger is low (e.g., < 6), plan to find and eat food soon.
-12. **Output Format:** Output ONLY the list of planned actions, one action per line. Do NOT include explanations, numbering, comments, or any introductory/concluding text. Ensure each line is a valid action call (e.g., \`collectBlock oak_log 5\`, \`craftItem crafting_table 1\`).
+7.  **Resource Gathering:** Prioritize gathering all necessary raw materials for a multi-step craft or build task *before* starting the crafting/building steps.
+8.  **Efficiency:** Choose the most direct sequence. Use \`moveToPosition\` for horizontal travel or minor adjustments. Prefer digging/pillaring for vertical movement. Avoid long sequences of small \`moveToPosition\` steps.
+9.  **Error Handling:** If the 'Last Action Result' indicates a failure, the new plan MUST address the cause. Examples: If \`craftItem\` fails with 'Need crafting table nearby', the next plan MUST include \`placeBlock crafting_table\` at a suitable empty location before retrying the craft. If \`collectBlock\` fails with 'Need a suitable tool', the next plan MUST include crafting the required tool. If \`placeBlock\` fails, try a different nearby empty location. Avoid repeating the exact failed action immediately.
+10. **Skill Usage:** Select the most appropriate action. Use \`generateAndExecuteCode\` for complex navigation or multi-step procedures not covered by basic actions.
+11. **Stuck Detection:** If the same action fails multiple times (see Last Action Result) or progress isn't being made towards the goal despite several steps, use \`askForHelp\` or try a significantly different approach (e.g., explore elsewhere if resources aren't found).
+12. **Safety:** If health is low (e.g., < 10), prioritize safety: avoid combat, find/eat food if available, or \`askForHelp\`. If hunger is low (e.g., < 6), plan to find and eat food soon.
+13. **Output Format:** Output ONLY the list of planned actions, one action per line. Do NOT include explanations, numbering, comments, or any introductory/concluding text. Ensure each line is a valid action call (e.g., \`collectBlock oak_log 5\`, \`craftItem crafting_table 1\`).
 
 Plan:`; // Ensure 'Plan:' label is present for potential parsing
 

@@ -1,17 +1,23 @@
-import { State } from './types';
+import { State, SpatialMemoryEntry } from './types'; // Import SpatialMemoryEntry
 import { Bot } from 'mineflayer';
 import { IndexedData } from 'minecraft-data'; // Import mcData type
+import { MemoryManager } from './memory'; // Import MemoryManager
+import { Vec3 } from 'vec3'; // Import Vec3
 
 export class ObserveManager {
   private bot: Bot;
   private mcData: IndexedData; // Store mcData instance
+  private memoryManager: MemoryManager; // Store MemoryManager instance
+  private observationRadius = 5; // How far around the bot to observe spatially
 
-  constructor(bot: Bot, mcData: IndexedData) { // Accept mcData in constructor
+  constructor(bot: Bot, mcData: IndexedData, memoryManager: MemoryManager) { // Accept MemoryManager
     this.bot = bot;
     this.mcData = mcData; // Store it
+    this.memoryManager = memoryManager; // Store it
   }
 
-  async observe(currentState: State): Promise<Partial<State>> {
+  // Return only Surroundings and Inventory updates
+  async observe(currentState: State): Promise<Pick<State, 'surroundings' | 'inventory'>> {
     console.log("--- Running Observe Manager ---");
     
     // Update state with current observations
@@ -65,7 +71,32 @@ export class ObserveManager {
         console.log(`[ObserveManager] Correcting inventory state to match actual bot inventory`);
       }
     }
-    
+
+    // --- Spatial Observation ---
+    const spatialUpdates: Record<string, SpatialMemoryEntry> = {};
+    const now = Date.now();
+    const radius = this.observationRadius;
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+          const relativePos = new Vec3(dx, dy, dz);
+          const absolutePos = position.plus(relativePos);
+          const block = this.bot.blockAt(absolutePos);
+          if (block && block.name !== 'air') {
+            const coordKey = `${absolutePos.x.toFixed(0)},${absolutePos.y.toFixed(0)},${absolutePos.z.toFixed(0)}`;
+            spatialUpdates[coordKey] = {
+              blockName: block.name,
+              timestamp: now,
+              // entities: [] // TODO: Add nearby entity info here if needed
+            };
+          }
+        }
+      }
+    }
+    // Update spatial memory directly
+    await this.memoryManager.updateSpatialMemory(spatialUpdates);
+    // --- End Spatial Observation ---
+
     // Get time and biome with more detailed time information
     const timeOfDay = this.bot.time.timeOfDay;
     const isDay = (timeOfDay >= 0 && timeOfDay < 13000) || timeOfDay > 23000;
@@ -92,6 +123,7 @@ export class ObserveManager {
         biome: biomeName, // Use the biome name string
         isSleeping: this.bot.isSleeping || false // Track if bot is sleeping
       }
+      // DO NOT return memory updates here anymore
     };
   }
 }
