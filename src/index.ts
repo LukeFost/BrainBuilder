@@ -386,76 +386,58 @@ async function startNode(): Promise<AgentNode> {
 // Define the possible node names explicitly
 type AgentNode = "observe" | "think" | "validate" | "act" | "resultAnalysis" | "__start__";
 
-// Use State directly as the graph's state type
-const workflow = new StateGraph<State, Partial<State>, AgentNode>({});
-
-// Define state channels
-workflow.addChannel({
-  name: "memory",
-  value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left,
-  default: () => currentAgentState.memory
+// Use State directly as the graph's state type with channels in constructor
+const workflow = new StateGraph<State, Partial<State>, AgentNode>({
+  channels: {
+    memory: {
+      value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left, 
+      default: () => currentAgentState.memory
+    },
+    inventory: {
+      value: (left: Inventory, right?: Inventory) => right ?? left,
+      default: () => currentAgentState.inventory
+    },
+    surroundings: {
+      value: (left: Surroundings, right?: Surroundings) => right ?? left,
+      default: () => currentAgentState.surroundings
+    },
+    currentGoal: {
+      value: (left?: string, right?: string) => right ?? left,
+      default: () => currentAgentState.currentGoal
+    },
+    currentPlan: {
+      value: (left?: string[], right?: string[]) => right ?? left,
+      default: () => currentAgentState.currentPlan
+    },
+    lastAction: {
+      value: (left?: string, right?: string) => right ?? left,
+      default: () => currentAgentState.lastAction
+    },
+    lastActionResult: {
+      value: (left?: string, right?: string) => right ?? left,
+      default: () => currentAgentState.lastActionResult
+    }
+  }
 });
 
-workflow.addChannel({
-  name: "inventory",
-  value: (left: Inventory, right?: Inventory) => right ?? left,
-  default: () => currentAgentState.inventory
-});
-
-workflow.addChannel({
-  name: "surroundings",
-  value: (left: Surroundings, right?: Surroundings) => right ?? left,
-  default: () => currentAgentState.surroundings
-});
-
-workflow.addChannel({
-  name: "currentGoal",
-  value: (left?: string, right?: string) => right ?? left,
-  default: () => currentAgentState.currentGoal
-});
-
-workflow.addChannel({
-  name: "currentPlan",
-  value: (left?: string[], right?: string[]) => right ?? left,
-  default: () => currentAgentState.currentPlan
-});
-
-workflow.addChannel({
-  name: "lastAction",
-  value: (left?: string, right?: string) => right ?? left,
-  default: () => currentAgentState.lastAction
-});
-
-workflow.addChannel({
-  name: "lastActionResult",
-  value: (left?: string, right?: string) => right ?? left,
-  default: () => currentAgentState.lastActionResult
-});
-
-// Add nodes directly with the functions
-workflow.addNode("__start__", startNode);
-workflow.addNode("observe", runObserveNode);
-workflow.addNode("think", runThinkNode);
-workflow.addNode("validate", runValidateNode);
-workflow.addNode("act", runActNode);
-workflow.addNode("resultAnalysis", runResultAnalysisNode);
+// Add nodes with proper typing
+workflow.addNode("__start__", new RunnableLambda({ func: startNode }));
+workflow.addNode("observe", new RunnableLambda({ func: runObserveNode }));
+workflow.addNode("think", new RunnableLambda({ func: runThinkNode }));
+workflow.addNode("validate", new RunnableLambda({ func: runValidateNode }));
+workflow.addNode("act", new RunnableLambda({ func: runActNode }));
+workflow.addNode("resultAnalysis", new RunnableLambda({ func: runResultAnalysisNode }));
 
 // Set the entry point
 workflow.setEntryPoint("__start__");
 
-// Add edges with the correct format
-workflow.addEdge("__start__", "observe");
-
-workflow.addEdge("observe", "think");
-
-// The conditional logic is now inside the think node
-// No need for addConditionalEdges here
-
-workflow.addEdge("validate", "act");
-
-workflow.addEdge("act", "resultAnalysis");
-
-workflow.addEdge("resultAnalysis", "observe");
+// Add edges with the correct format (source nodes in an array)
+workflow.addEdge(["__start__"], "observe");
+workflow.addEdge(["observe"], "think");
+workflow.addEdge(["think"], "validate");
+workflow.addEdge(["validate"], "act");
+workflow.addEdge(["act"], "resultAnalysis");
+workflow.addEdge(["resultAnalysis"], "observe");
 
 // Compile the graph
 const app = workflow.compile();
