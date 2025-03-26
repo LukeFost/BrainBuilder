@@ -222,8 +222,6 @@ bot.on('error', console.log);
 
 // --- Graph Nodes ---
 
-// Import the ObserveManager
-import { ObserveManager } from './agent/observe';
 
 // Create an instance of ObserveManager
 let observeManager: ObserveManager | null = null;
