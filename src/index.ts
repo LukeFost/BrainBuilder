@@ -43,9 +43,10 @@ const bot = mineflayer.createBot(botConfig);
 
 // --- Agent Core Components ---
 const memoryManager = new MemoryManager();
-const skillRepository = new SkillRepository(actions); // Pass available actions
-const planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository); // Pass API key and skills
-const thinkManager = new ThinkManager(planner); // Pass the planner instance
+// Declare variables for components that need async initialization or bot instance
+let skillRepository: SkillRepository;
+let planner: Planner;
+let thinkManager: ThinkManager;
 let observeManager: ObserveManager | null = null; // Initialize lazily or here
 
 // Define initial state structure (values will be populated)
@@ -86,8 +87,21 @@ bot.once('spawn', async () => {
     console.error('CRITICAL: Error initializing pathfinder plugin:', error);
     console.error('Movement capabilities will be severely limited or non-functional.');
   }
-  
+
+  // Initialize components requiring await or bot instance here
+  skillRepository = new SkillRepository(); // Use default filename 'skills_library.json'
+  await skillRepository.loadSkills(); // Load skills from the file
+
+  planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository); // Pass API key and skills
+  thinkManager = new ThinkManager(planner); // Pass the planner instance
+  observeManager = new ObserveManager(bot); // Initialize ObserveManager here now that bot exists
+
   if (pathfinderInitialized) {
+    // Ensure observeManager is initialized before starting the loop
+    if (!observeManager) {
+       console.error("CRITICAL: ObserveManager failed to initialize. Cannot start agent loop.");
+       return;
+    }
     startAgentLoop();
   } else {
     console.error("Agent loop not started due to pathfinder initialization failure.");
@@ -178,10 +192,7 @@ interface AgentState {
 }
 
 // --- Graph Nodes ---
-// Ensure observeManager is initialized before use
-if (!observeManager) {
-  observeManager = new ObserveManager(bot);
-}
+// observeManager is now guaranteed to be initialized before startAgentLoop is called
 
 // Node functions now operate on the AgentState wrapper
 async function runObserveNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
