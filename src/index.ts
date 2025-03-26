@@ -502,8 +502,8 @@ async function startAgentLoop() {
 
         console.log(`--- Starting New Graph Invocation for Goal: "${currentAgentState.currentGoal}" ---`);
 
-        // Invoke the graph with null as the input (state is managed internally)
-        const finalState = await app.invoke(null, streamConfig) as State | undefined;
+        // Invoke the graph with the current state as input
+        const finalState = await app.invoke(currentAgentState, streamConfig) as State | undefined;
 
         // Update the shared state with the final result of the graph execution
         if (finalState) {
