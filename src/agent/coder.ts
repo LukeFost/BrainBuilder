@@ -72,7 +72,7 @@ module.exports = main; // Use module.exports for SES compatibility
     this.bot = bot;
     this.model = new ChatOpenAI({
       openAIApiKey: openAIApiKey,
-      modelName: 'gpt-4o', // Or your preferred model
+      modelName: 'gpt-4o-mini', // Or your preferred model
       temperature: 0.1, // Low temperature for code generation
     });
     // Configure ESLint programmatically (basic example)
