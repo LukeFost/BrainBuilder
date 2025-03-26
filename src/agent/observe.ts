@@ -66,8 +66,11 @@ export class ObserveManager {
       }
     }
     
-    // Get time and biome
+    // Get time and biome with more detailed time information
     const timeOfDay = this.bot.time.timeOfDay;
+    const isDay = (timeOfDay >= 0 && timeOfDay < 13000) || timeOfDay > 23000;
+    const isNight = timeOfDay >= 13000 && timeOfDay <= 23000;
+    const timeDescription = isDay ? "day" : "night";
     const biomeId = this.bot.world.getBiome(position.floored()); // Get biome ID
     const biomeName = this.mcData.biomes[biomeId]?.name ?? 'unknown'; // Convert ID to name using mcData
 
@@ -85,7 +88,9 @@ export class ObserveManager {
         health: this.bot.health,
         food: this.bot.food,
         dayTime: timeOfDay.toString(), // Convert number to string
-        biome: biomeName // Use the biome name string
+        timeDescription: timeDescription, // Add human-readable time description
+        biome: biomeName, // Use the biome name string
+        isSleeping: this.bot.isSleeping || false // Track if bot is sleeping
       }
     };
   }

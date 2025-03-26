@@ -12,7 +12,9 @@ import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
 import { SkillRepository } from './agent/skills/skillRepository'; // Import SkillRepository
 // Import actions from the new index file
-import { actions } from './agent/actions/index';
+import { sleepAction } from './sleep';
+import { wakeUpAction } from './wakeUp';
+import { actions } from './index';
 import { State, Memory, Inventory, Surroundings } from './agent/types';
 import { ThinkManager } from './agent/think';
 import { ObserveManager } from './agent/observe';

@@ -22,9 +22,11 @@ export interface State {
     nearbyEntities: string[];
     position: { x: number; y: number; z: number };
     dayTime?: string;
+    timeDescription?: string; // Add human-readable time description
     biome?: string;
     health?: number; // Add health
     food?: number;   // Add food/hunger
+    isSleeping?: boolean; // Track if bot is sleeping
   }
 
   // Import necessary types (adjust path if needed)

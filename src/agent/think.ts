@@ -23,6 +23,24 @@ export class ThinkManager {
       };
     }
     
+    // Check if it's night time and we should sleep
+    if (this.shouldSleep(currentState)) {
+      console.log("[ThinkManager] It's night time. Should try to sleep.");
+      return {
+        lastAction: "sleep",
+        currentPlan: ["sleep"]
+      };
+    }
+    
+    // Check if we're sleeping and it's day time (time to wake up)
+    if (this.shouldWakeUp(currentState)) {
+      console.log("[ThinkManager] It's day time. Should wake up.");
+      return {
+        lastAction: "wakeUp",
+        currentPlan: ["wakeUp"]
+      };
+    }
+    
     let needsReplan = false;
     let reason = "";
 
@@ -145,6 +163,16 @@ export class ThinkManager {
       return false;
     }
     
+    // Check for sleep-related goals
+    if (goal.toLowerCase().includes('sleep') || goal.toLowerCase().includes('rest')) {
+      // If the goal was to sleep and we've slept, consider it complete
+      if (state.lastAction?.includes('sleep') && 
+          state.lastActionResult?.toLowerCase().includes('sleeping')) {
+        console.log(`[ThinkManager] Sleep goal completed!`);
+        return true;
+      }
+    }
+    
     // Add more goal completion checks for other common goals
     if (goal.toLowerCase().includes('explore')) {
       // For exploration goals, we can consider them completed after a certain number of actions
@@ -170,5 +198,43 @@ export class ThinkManager {
     }
     
     return false;
+  }
+  
+  /**
+   * Determines if the bot should try to sleep based on time of day
+   */
+  private shouldSleep(state: State): boolean {
+    // Check if it's night time
+    const timeOfDay = state.surroundings.dayTime ? parseInt(state.surroundings.dayTime) : 0;
+    
+    // In Minecraft, night time is roughly between 13000 and 23000 ticks
+    const isNightTime = timeOfDay >= 13000 && timeOfDay <= 23000;
+    
+    // Don't try to sleep if we're already sleeping
+    const alreadySleeping = state.lastAction === "sleep" && 
+                           state.lastActionResult?.toLowerCase().includes("sleeping");
+    
+    // Don't try to sleep if we just failed to sleep
+    const justFailedToSleep = state.lastAction === "sleep" && 
+                             state.lastActionResult?.toLowerCase().includes("fail");
+    
+    return isNightTime && !alreadySleeping && !justFailedToSleep;
+  }
+  
+  /**
+   * Determines if the bot should wake up based on time of day
+   */
+  private shouldWakeUp(state: State): boolean {
+    // Check if it's day time
+    const timeOfDay = state.surroundings.dayTime ? parseInt(state.surroundings.dayTime) : 0;
+    
+    // In Minecraft, day time is roughly between 0 and 13000 ticks or after 23000
+    const isDayTime = (timeOfDay >= 0 && timeOfDay < 13000) || timeOfDay > 23000;
+    
+    // Check if we're currently sleeping
+    const isSleeping = state.lastAction === "sleep" && 
+                      state.lastActionResult?.toLowerCase().includes("sleeping");
+    
+    return isDayTime && isSleeping;
   }
 }
