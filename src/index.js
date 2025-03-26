@@ -7,41 +7,36 @@ import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages"; // Although not used yet, good to have for potential future message passing
 
 // Define your own StateGraph and END until the langgraph-sdk exports them
-class StateGraph<T> {
-  channels: Record<string, { value: any }>;
-  nodes: Map<string, (state: T) => Promise<Partial<T>>>;
-  edges: Map<string, string[]>;
-  entryPoint: string | null;
-
-  constructor(options: { channels: Record<string, { value: any }> }) {
+class StateGraph {
+  constructor(options) {
     this.channels = options.channels;
     this.nodes = new Map();
     this.edges = new Map();
     this.entryPoint = null;
   }
 
-  addNode(name: string, fn: (state: T) => Promise<Partial<T>>) {
+  addNode(name, fn) {
     this.nodes.set(name, fn);
     return this;
   }
 
-  setEntryPoint(name: string) {
+  setEntryPoint(name) {
     this.entryPoint = name;
     return this;
   }
 
-  addEdge(from: string, to: string) {
+  addEdge(from, to) {
     if (!this.edges.has(from)) {
       this.edges.set(from, []);
     }
-    this.edges.get(from)!.push(to);
+    this.edges.get(from).push(to);
     return this;
   }
 
   compile() {
     return {
-      stream: (initialState: T, options?: { recursionLimit?: number }) => {
-        const limit = options?.recursionLimit || 100;
+      stream: (initialState, options = {}) => {
+        const limit = options.recursionLimit || 100;
         let currentNode = this.entryPoint;
         let state = { ...initialState };
         const graph = this;
@@ -85,7 +80,7 @@ import { ObserveManager } from './agent/observe'; // Keep this
 // Define the LangGraph state object structure
 // Note: We are using our existing State interface. If more complex message passing is needed later,
 // we might switch to MessagesState or a custom class extending it.
-type GraphState = State;
+// GraphState is just State in JavaScript
 
 // Load environment variables
 dotenv.config();
@@ -96,7 +91,7 @@ const botConfig = {
   port: parseInt(process.env.MINECRAFT_PORT || '25565'), // LAN port from Minecraft
   username: 'AIBot',
   version: '1.21.1', // Updated to match your LAN world version
-  auth: 'offline' as 'offline' // Type assertion to fix type error
+  auth: 'offline' // No type assertion needed in JavaScript
 };
 
 // Create bot
@@ -221,7 +216,7 @@ import { ObserveManager } from './agent/observe';
 let observeManager: ObserveManager | null = null;
 
 // Observe Node: Gathers information about the environment and updates the state.
-async function observeNode(currentState: GraphState): Promise<Partial<GraphState>> {
+async function observeNode(currentState) {
   console.log("--- Running Observe Node ---");
   
   // Create ObserveManager instance if not already created
@@ -241,7 +236,7 @@ async function observeNode(currentState: GraphState): Promise<Partial<GraphState
 
 
 // Think Node: Uses the ThinkManager to decide the next action or replan.
-async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>> {
+async function thinkNode(currentState) {
   console.log("--- Running Think Node ---");
   // Delegate all thinking logic to the ThinkManager
   try {
@@ -258,7 +253,7 @@ async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>>
 // Act Node: Executes the action decided by the 'think' node.
 // (Keep the existing actNode implementation, ensuring it correctly updates
 // the plan state after successful execution)
-async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
+async function actNode(currentState) {
   console.log("--- Running Act Node ---");
   const actionToPerform = currentState.lastAction;
 
@@ -280,7 +275,7 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
       result = await actions[actionName].execute(bot, args, currentState);
       executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error'); // Basic success check
       console.log(`[ActNode] Action Result: ${result}`);
-    } catch (error: any) {
+    } catch (error) {
       result = `Failed to execute ${actionName}: ${error.message || error}`;
       console.error(`[ActNode] ${result}`);
       executionSuccess = false;
