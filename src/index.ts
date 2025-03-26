@@ -385,18 +385,20 @@ async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<Par
 // --- Build the Graph ---
 const workflow = new StateGraph<AgentState>({
   channels: {
+    // Channel for the 'state' property of AgentState
     state: {
-        // The value reducer takes the existing channel value and the new value
-        // and returns the updated channel value.
-        value: (left: State, right: State) => right, // Always take the latest state update
-        // The default value is used if the channel is accessed before it's been assigned.
-        default: () => currentAgentState // Start with the mutable currentAgentState
+        // Reducer operates on the State object
+        value: (left?: State, right?: State) => right ?? left, // Take the new state if provided, else keep the old
+        // Default provides the initial State object
+        default: () => currentAgentState // The initial value for the 'state' channel is the initial State object
+    },
+    // Channel for the 'config' property of AgentState
+    config: {
+        // Reducer operates on the RunnableConfig object
+        value: (left?: RunnableConfig, right?: RunnableConfig) => right ?? left, // Take new config if provided
+        // Default provides the initial RunnableConfig object
+        default: () => ({ recursionLimit: 300 } as RunnableConfig) // Default config
     }
-    // Add config channel if needed for passing RunnableConfig through the graph
-    // config: {
-    //   value: (left?: RunnableConfig, right?: RunnableConfig) => right ?? left,
-    //   default: () => ({ recursionLimit: 150 } as RunnableConfig)
-    // }
   }
 });
 
