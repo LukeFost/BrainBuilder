@@ -70,39 +70,81 @@ export const placeBlockAction: Action = {
             return `Cannot place ${blockType}: Not found in actual inventory (state desync?).`;
         }
 
-        // 2. Find a reference block and face vector
-        // Strategy: Try placing on the block directly below the target position.
-        const referenceBlockPos = targetPos.offset(0, -1, 0); // Use Vec3 offset
-        const referenceBlock = bot.blockAt(referenceBlockPos);
-
-        if (!referenceBlock || referenceBlock.name === 'air' || referenceBlock.boundingBox !== 'block') {
-            // TODO: Add more sophisticated reference block finding (adjacent blocks)
-            return `Cannot place ${blockType}: No solid reference block found below target position (${referenceBlockPos.x}, ${referenceBlockPos.y}, ${referenceBlockPos.z}) to place against. Found ${referenceBlock?.name}.`;
+        // 2. Check reachability
+        const reachDistance = bot.blockInteractionRange || 4.5; // Default reach is around 4.5 blocks
+        if (bot.entity.position.distanceTo(targetPos) > reachDistance + 1) { // Add buffer
+             // If too far, try moving closer first before detailed checks
+             console.log(`[Action:placeBlock] Target position ${targetPos} is too far (${bot.entity.position.distanceTo(targetPos).toFixed(2)} > ${reachDistance}). Moving closer.`);
+             const moveGoal = new PathfinderGoals.GoalNear(targetPos.x, targetPos.y, targetPos.z, reachDistance - 1); // Move within reach
+             try {
+                 await bot.pathfinder.goto(moveGoal);
+                 console.log(`[Action:placeBlock] Moved closer to target position.`);
+             } catch (moveError: any) {
+                 return `Failed to move closer to placement target ${targetPos}: ${moveError.message}`;
+             }
+             // Re-check distance after moving
+             if (bot.entity.position.distanceTo(targetPos) > reachDistance + 1) {
+                 return `Cannot place ${blockType}: Target position ${targetPos} is still too far after attempting to move closer (${bot.entity.position.distanceTo(targetPos).toFixed(2)} > ${reachDistance}).`;
+             }
         }
 
-        // The face vector points from the reference block towards the target block.
-        // For placing on top, the face vector is (0, 1, 0)
-        const faceVector = new Vec3(0, 1, 0); // Assuming placement on top for simplicity
+        // 3. Find a valid reference block and face vector
+        let referenceBlock: mineflayer.Block | null = null;
+        let faceVector: Vec3 | null = null;
+        const possibleFaces = [
+            new Vec3(0, -1, 0), // Place on block below (face is up)
+            new Vec3(0, 1, 0),  // Place hanging from block above (face is down)
+            new Vec3(-1, 0, 0), // Place on block to the west (face is east)
+            new Vec3(1, 0, 0),  // Place on block to the east (face is west)
+            new Vec3(0, 0, -1), // Place on block to the north (face is south)
+            new Vec3(0, 0, 1)   // Place on block to the south (face is north)
+        ];
 
-        // 3. Move near the placement location (near the reference block)
-        // Goal is to be close enough to interact with the reference block.
-        const goal = new PathfinderGoals.GoalPlaceBlock(targetPos, bot.world, {
-            range: 3, // Adjust range as needed
-            faces: [faceVector] // Specify the face we intend to click
-        });
-        // const goal = new PathfinderGoals.GoalNear(referenceBlockPos.x, referenceBlockPos.y, referenceBlockPos.z, 3); // Simpler alternative
+        for (const face of possibleFaces) {
+            const potentialRefPos = targetPos.minus(face); // Position of the block we'd click on
+            const potentialRefBlock = bot.blockAt(potentialRefPos);
 
-        console.log(`[Action:placeBlock] Moving near reference block at ${referenceBlockPos}`);
-        await bot.pathfinder.goto(goal);
-        console.log(`[Action:placeBlock] Reached near reference block.`);
+            // Check if the reference block is solid and within reach
+            if (potentialRefBlock && potentialRefBlock.boundingBox === 'block' && bot.entity.position.distanceTo(potentialRefBlock.position.offset(0.5, 0.5, 0.5)) <= reachDistance) {
+                 // Check if the target position is currently empty (or replaceable like grass)
+                 const targetBlock = bot.blockAt(targetPos);
+                 if (!targetBlock || targetBlock.boundingBox !== 'block' || targetBlock.name === 'air' || targetBlock.name === 'grass' || targetBlock.name === 'water') { // Allow replacing air, grass, water etc.
+                    referenceBlock = potentialRefBlock;
+                    faceVector = face;
+                    console.log(`[Action:placeBlock] Found valid reference block: ${referenceBlock.name} at ${referenceBlock.position} with face ${faceVector}`);
+                    break; // Found a valid placement strategy
+                 } else {
+                     console.log(`[Action:placeBlock] Target position ${targetPos} is occupied by ${targetBlock.name}, cannot use reference ${potentialRefBlock.name} at ${potentialRefPos}`);
+                 }
+            }
+        }
 
-        // 4. Equip the block
+        if (!referenceBlock || !faceVector) {
+            return `Cannot place ${blockType}: No suitable empty space or solid reference block found adjacent to target position ${targetPos} within reach.`;
+        }
+
+        // 4. Move near the placement location (if needed, pathfinder might handle this implicitly with GoalPlaceBlock)
+        // Ensure bot is looking at the reference block face? Mineflayer usually handles this.
+
+        // 5. Equip the block
         console.log(`[Action:placeBlock] Equipping ${itemToPlace.name}`);
         await bot.equip(itemToPlace, 'hand');
 
-        // 5. Place the block
-        console.log(`[Action:placeBlock] Placing ${blockType} against ${referenceBlock.name} at ${referenceBlockPos} (face: ${faceVector})`);
-        await bot.placeBlock(referenceBlock, faceVector);
+        // 6. Place the block
+        console.log(`[Action:placeBlock] Placing ${blockType} at ${targetPos} against ${referenceBlock.name} at ${referenceBlock.position} (face: ${faceVector})`);
+        try {
+            await bot.placeBlock(referenceBlock, faceVector);
+        } catch (placeError: any) {
+             // Catch specific placement errors
+             console.error(`[Action:placeBlock] Error during bot.placeBlock: ${placeError.message}`);
+             if (placeError.message.includes("Must be holding")) {
+                 return `Failed to place ${blockType}: Bot wasn't holding the item correctly (equip failed?).`;
+             } else if (placeError.message.includes("Interaction Failed")) {
+                 return `Failed to place ${blockType}: Interaction failed. Is the spot obstructed or too far?`;
+             }
+             return `Failed to place ${blockType}: ${placeError.message}`; // General placement error
+        }
+
 
         // DO NOT update state inventory here. ObserveManager will handle it.
 

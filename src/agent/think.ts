@@ -1,14 +1,14 @@
 import { State } from './types';
-import { Planner } from './planner';
+import { Planner } from './planner'; // Keep this import
 
 export class ThinkManager {
-  private planner: Planner;
+  private planner: Planner; // Planner instance will be passed in
   private lastFailedAction: string | null = null;
   private consecutiveFailureCount: number = 0;
   private maxConsecutiveFailures: number = 2; // Replan after 2 consecutive failures of the *same* action
 
-  constructor(openAIApiKey: string) {
-    this.planner = new Planner(openAIApiKey);
+  constructor(planner: Planner) { // Accept Planner instance
+    this.planner = planner; // Store the passed-in planner instance
   }
 
   async think(currentState: State): Promise<Partial<State>> {

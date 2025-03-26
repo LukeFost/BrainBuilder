@@ -10,6 +10,7 @@ import { RunnableConfig } from "@langchain/core/runnables";
 
 import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
+import { SkillRepository } from './agent/skills'; // Import SkillRepository
 // Import actions from the new index file
 import { actions } from './agent/actions/index';
 import { State, Memory, Inventory, Surroundings } from './agent/types';
@@ -18,6 +19,15 @@ import { ObserveManager } from './agent/observe';
 
 // Load environment variables
 dotenv.config();
+
+// --- LangGraph Client Setup ---
+// const client = new Client({
+//   apiUrl: "YOUR_LANGGRAPH_API_URL", // Replace with your LangGraph Cloud API URL if using cloud
+//   defaultHeaders: {
+//     "X-API-Key": "YOUR_LANGGRAPH_API_KEY", // Replace if using LangGraph Cloud API Key
+//   },
+// });
+// For local execution without LangGraph Cloud, the client is not strictly needed for the graph itself.
 
 // Bot configuration
 const botConfig = {
@@ -30,12 +40,16 @@ const botConfig = {
 
 // Create bot
 const bot = mineflayer.createBot(botConfig);
-// Initialize the memory manager
-const memoryManager = new MemoryManager();
-const thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || '');
 
-// Define initial state
-const state: State = {
+// --- Agent Core Components ---
+const memoryManager = new MemoryManager();
+const skillRepository = new SkillRepository(actions); // Pass available actions
+const planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository); // Pass API key and skills
+const thinkManager = new ThinkManager(planner); // Pass the planner instance
+let observeManager: ObserveManager | null = null; // Initialize lazily or here
+
+// Define initial state structure (values will be populated)
+const initialState: State = {
   memory: memoryManager.fullMemory,
   inventory: { items: {} },
   surroundings: {
@@ -43,7 +57,11 @@ const state: State = {
     nearbyEntities: [],
     position: { x: 0, y: 0, z: 0 }
   },
-  currentGoal: 'Collect wood and build a small shelter'
+  currentGoal: 'Collect 10 oak_log and craft a crafting_table', // Updated initial goal
+  // Ensure all required fields from State type are present
+  lastAction: undefined,
+  lastActionResult: undefined,
+  currentPlan: undefined,
 };
 
 // Bot event handlers

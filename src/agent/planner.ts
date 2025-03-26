@@ -1,66 +1,68 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { State } from './types';
+import { SkillRepository } from './skills'; // Assuming SkillRepository is defined here or imported
 
 export class Planner {
   private model: ChatOpenAI;
-  
-  constructor(apiKey: string) {
-    this.model = new ChatOpenAI({
-      openAIApiKey: apiKey,
-      modelName: 'gpt-4o',
-      temperature: 0.2,
-    });
+  private skillRepository: SkillRepository; // Added
+
+  constructor(apiKey: string, skillRepository: SkillRepository) { // Updated constructor
     this.model = new ChatOpenAI({
       openAIApiKey: apiKey,
       modelName: 'gpt-4o', // Ensure this is the desired model
       temperature: 0.1, // Lower temperature for more deterministic plans
     });
+    this.skillRepository = skillRepository; // Store skill repository
   }
 
   async createPlan(state: State, goal: string): Promise<string[]> {
-    // Add health/hunger to the state summary for better context
+    // Enhanced state summary including health, hunger, time, biome, memory, and plan history
     const stateSummary = `
 Current Health: ${state.surroundings.health ?? 'Unknown'}
 Current Hunger: ${state.surroundings.food ?? 'Unknown'}
+Time of Day: ${state.surroundings.timeOfDay ?? 'Unknown'}
+Current Biome: ${state.surroundings.biome ?? 'Unknown'}
 Position: ${JSON.stringify(state.surroundings.position)}
 Inventory: ${JSON.stringify(state.inventory.items)}
-Nearby Blocks (sample): ${state.surroundings.nearbyBlocks.slice(0, 10).join(', ')}
-Nearby Entities: ${state.surroundings.nearbyEntities.join(', ')}
-Short-term Memory (last 3): ${state.memory.shortTerm.slice(-3).join(' | ')}
+Nearby Blocks (sample): ${state.surroundings.nearbyBlocks?.slice(0, 10).join(', ') ?? 'None'}
+Nearby Entities: ${state.surroundings.nearbyEntities?.join(', ') ?? 'None'}
+Short-term Memory (last 5): ${state.memory.shortTerm?.slice(-5).join(' | ') ?? 'Empty'}
+Long-term Memory Summary: ${state.memory.longTermSummary ?? 'None available'}
+Previous Plan Steps (if any): ${state.currentPlan?.slice(0, 5).join(' -> ') ?? 'None'}
+Last Action: ${state.lastAction || 'None'}
 Last Action Result: ${state.lastActionResult || 'None'}
 `;
+    // Retrieve available skills/actions dynamically
+    const availableSkills = this.skillRepository.getAvailableSkills();
+    const actionDescriptions = availableSkills.map(skill => `- ${skill.name}: ${skill.description}`).join('\n');
 
     const prompt = `
-You are a Minecraft agent planner. Your task is to create a concise, step-by-step plan to achieve a goal, considering the current state.
+You are a meticulous and efficient Minecraft agent planner. Your task is to create a concise, step-by-step plan to achieve a given goal, considering the current state, available actions (skills), and past experiences.
 
 Current State:
 ${stateSummary}
 
 Goal: ${goal}
 
-Available Actions:
-- collectBlock <blockType> <count>
-- moveToPosition <x> <y> <z>
-- craftItem <itemName> <count>
-- lookAround
-- attackEntity <entityName>
-- placeBlock <blockType> <x> <y> <z>
-- sleep
-- wakeUp
-- dropItem <itemName> <count>
+Available Actions (Skills):
+${actionDescriptions}
 - generateAndExecuteCode <task description string> (Use ONLY for complex tasks not covered by other actions)
-- askForHelp <question> (Use if stuck, goal unclear, or resources missing after trying)
+- askForHelp <question> (Use if stuck, goal unclear, resources missing after trying, or plan fails repeatedly)
 
 Planning Guidelines:
-1. Break the goal into small, actionable steps using ONLY the available actions.
-2. Prioritize resource collection before crafting/building. Check inventory first.
-3. If the last action failed (see state summary), the new plan should address the failure (e.g., get missing items).
-4. Use 'askForHelp' if truly stuck or the goal is ambiguous.
-5. Output ONLY the list of actions, one action per line. No explanations, numbering, or intro/outro text.
+1.  **Analyze State:** Carefully consider inventory, surroundings, health, hunger, time, memory, and the last action's result.
+2.  **Break Down Goal:** Decompose the goal into small, sequential, actionable steps using ONLY the available actions.
+3.  **Resource Management:** Prioritize gathering necessary resources before attempting crafting or building. Always check inventory first.
+4.  **Efficiency:** Choose the most direct sequence of actions. Use `moveToPosition` only when necessary for reaching resources or targets.
+5.  **Error Handling:** If the 'Last Action Result' indicates a failure, the new plan MUST address the cause of the failure (e.g., collect missing items, choose a different location, use `askForHelp`). Avoid repeating failed actions without modification.
+6.  **Skill Usage:** Select the most appropriate action for each step. Use `generateAndExecuteCode` sparingly for truly complex, multi-step procedures not covered by basic actions.
+7.  **Stuck Detection:** If the same action fails multiple times or progress isn't being made, use `askForHelp`.
+8.  **Output Format:** Output ONLY the list of planned actions, one action per line. Do NOT include explanations, numbering, comments, or any introductory/concluding text.
 
-Plan:`; // Added 'Plan:' label for clarity
+Plan:`; // Ensure 'Plan:' label is present for potential parsing
 
     try {
+        console.log("[Planner] Generating plan with prompt:\n", prompt); // Log the prompt for debugging
         const response = await this.model.invoke(prompt); // Pass prompt directly
         const responseText = response.content.toString();
 

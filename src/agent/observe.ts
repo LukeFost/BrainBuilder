@@ -63,6 +63,10 @@ export class ObserveManager {
       }
     }
     
+    // Get time and biome
+    const timeOfDay = this.bot.time.timeOfDay;
+    const biome = this.bot.world.getBiome(position.floored()); // Use floored position for biome
+
     // Return the updated parts of the state
     return {
       inventory: { items: inventory }, // Always use the actual bot inventory
@@ -75,7 +79,9 @@ export class ObserveManager {
           z: position.z
         },
         health: this.bot.health,
-        food: this.bot.food
+        food: this.bot.food,
+        timeOfDay: timeOfDay, // Added
+        biome: biome // Added
       }
     };
   }
