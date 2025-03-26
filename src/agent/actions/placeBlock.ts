@@ -104,6 +104,12 @@ export const placeBlockAction: Action = {
         // 4. Move near the placement location (if needed, pathfinder might handle this implicitly with GoalPlaceBlock)
         // Ensure bot is looking at the reference block face? Mineflayer usually handles this.
 
+        // *** Add check if target block is solid ***
+        const targetBlock = bot.blockAt(targetPos);
+        if (targetBlock && targetBlock.boundingBox === 'block' && targetBlock.name !== 'air' && targetBlock.name !== 'grass' && targetBlock.name !== 'water') { // Add other replaceable blocks if needed
+            return `Failed to place ${blockType}: Target position ${targetPos} is occupied by solid block ${targetBlock.name}.`;
+        }
+
         // 5. Equip the block
         console.log(`[Action:placeBlock] Equipping ${itemToPlace.name}`);
         await bot.equip(itemToPlace, 'hand');
@@ -115,6 +121,10 @@ export const placeBlockAction: Action = {
         } catch (placeError: any) {
              // Catch specific placement errors
              console.error(`[Action:placeBlock] Error during bot.placeBlock: ${placeError.message}`);
+             // *** Improve timeout error message ***
+             if (placeError.message.includes("Event blockUpdate") && placeError.message.includes("did not fire within timeout")) {
+                 return `Failed to place ${blockType}: Placement timed out. Location ${targetPos} might be obstructed or invalid.`;
+             }
              if (placeError.message.includes("Must be holding")) {
                  return `Failed to place ${blockType}: Bot wasn't holding the item correctly (equip failed?).`;
              } else if (placeError.message.includes("Interaction Failed")) {

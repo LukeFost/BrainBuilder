@@ -133,16 +133,19 @@ export const craftItemAction: Action = {
         const tableRecipes = bot.recipesFor(itemToCraft.id, null, 1, true); // craftingTable = true
         const tableRecipe: Recipe | undefined = tableRecipes[0]; // Add type annotation
         if (tableRecipe) {
+          console.log(`[Action:craftItem] Found table recipe for ${normalizedItemName}. Checking for nearby crafting table.`);
           const craftingTableBlock: Block | null = bot.findBlock({ // Add type annotation
             matching: mcData.blocksByName['crafting_table']?.id, // Use passed mcData
             maxDistance: 4 // Check within reasonable distance
           });
 
+          // *** Add explicit check for crafting table BEFORE checking ingredients ***
           if (!craftingTableBlock) {
-            return `Cannot craft ${normalizedItemName}. Need a crafting table nearby.`;
+            const message = `Cannot craft ${normalizedItemName}. Need a crafting table nearby.`;
+            console.log(`[Action:craftItem] ${message}`);
+            return message; // Return specific error
           }
-
-          console.log(`[Action:craftItem] Found table recipe for ${normalizedItemName}. Checking ingredients in state.`);
+          console.log(`[Action:craftItem] Crafting table found nearby at ${craftingTableBlock.position}. Checking ingredients in state.`);
 
           // Check ingredients using state inventory
           const stateInventory = currentState.inventory.items;
