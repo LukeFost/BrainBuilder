@@ -49,8 +49,8 @@ const openai = new ChatOpenAI({
   temperature: 0.2,
 });
 
-// Import actions (assuming compiled to JS)
-const { actions } = require('./agent/actions.js');
+// Import actions from the new index file (assuming compiled to JS)
+const { actions } = require('./agent/actions/index.js');
 
 
 // Bot event handlers

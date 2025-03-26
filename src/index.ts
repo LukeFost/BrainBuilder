@@ -83,7 +83,8 @@ const END = "end";
 
 import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
-import { actions } from './agent/actions';
+// Import actions from the new index file
+import { actions } from './agent/actions/index';
 import { State } from './agent/types';
 import { Critic } from './agent/critic'; // Import Critic
 import { ThinkManager } from './agent/think'; // Import ThinkManager
