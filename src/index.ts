@@ -234,8 +234,8 @@ interface AgentState {
 // --- Graph Nodes ---
 // observeManager and mcDataInstance are now guaranteed to be initialized before startAgentLoop is called
 
-// Node functions now operate on the AgentState wrapper and return the expected channel update structure
-async function runObserveNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
+// Node functions operate on AgentState and return Partial<AgentState> for channel updates
+async function runObserveNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
   console.log("--- Running Observe Node ---");
   let newState: State;
   if (!observeManager || !mcDataInstance) { // Add check for mcDataInstance too
@@ -247,7 +247,8 @@ async function runObserveNodeWrapper(agentState: AgentState): Promise<{ state: S
       // Merge the observation result back into the state within the wrapper
       newState = { ...agentState.state, ...observationResult, memory: memoryManager.fullMemory };
   }
-  return { state: newState }; // Update return statement
+  // Return an object matching Partial<AgentState>
+  return { state: newState }; // Revert return statement structure
 }
 
 async function runThinkNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
@@ -263,10 +264,11 @@ async function runThinkNodeWrapper(agentState: AgentState): Promise<{ state: Sta
     // Update the state within the wrapper on error
     newState = { ...agentState.state, lastAction: 'askForHelp An internal error occurred during thinking.' };
   }
-  return { state: newState }; // Update return statement
+  // Return an object matching Partial<AgentState>
+  return { state: newState }; // Revert return statement structure
 }
 
-async function runValidateNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
+async function runValidateNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
   console.log("--- Running Validate Node ---");
   let newState: State;
   try {
@@ -283,10 +285,11 @@ async function runValidateNodeWrapper(agentState: AgentState): Promise<{ state: 
       lastActionResult: 'An internal error occurred during validation.'
     };
   }
-  return { state: newState }; // Update return statement
+  // Return an object matching Partial<AgentState>
+  return { state: newState }; // Revert return statement structure
 }
 
-async function runActNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
+async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
   console.log("--- Running Act Node ---");
   const currentState = agentState.state; // Get state from wrapper
   const actionToPerform = currentState.lastAction;
@@ -295,7 +298,8 @@ async function runActNodeWrapper(agentState: AgentState): Promise<{ state: State
     console.log("[ActNode] No action decided. Skipping act node.");
     // Return updated wrapper state
     const newState = { ...currentState, lastActionResult: "No action to perform" };
-    return { state: newState }; // Update return statement
+    // Return an object matching Partial<AgentState>
+    return { state: newState }; // Revert return statement structure
   }
 
   const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
@@ -360,11 +364,11 @@ async function runActNodeWrapper(agentState: AgentState): Promise<{ state: State
       currentPlan: updatedPlan,
       memory: memoryManager.fullMemory // Ensure memory is updated
   };
-  // Return the updated wrapper state
-  return { state: newState }; // Update return statement
+  // Return an object matching Partial<AgentState>
+  return { state: newState }; // Revert return statement structure
 }
 
-async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
+async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
   console.log("--- Running Result Analysis Node ---");
   let newState: State;
   try {
@@ -381,7 +385,8 @@ async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<{ s
       lastActionResult: 'An internal error occurred during result analysis.'
     };
   }
-  return { state: newState }; // Update return statement
+  // Return an object matching Partial<AgentState>
+  return { state: newState }; // Revert return statement structure
 }
 
 
