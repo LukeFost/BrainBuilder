@@ -21,6 +21,12 @@ export const moveToPositionAction: Action = {
     const target = new PathfinderGoals.GoalBlock(x, y, z); // Or GoalNear if appropriate
     console.log(`[Action:moveToPosition] Attempting to move to (${x}, ${y}, ${z})`);
 
+    // Check if goal changed mid-action
+    if (currentState.currentGoal === "Waiting for instructions") {
+        console.log(`[Action:moveToPosition] Stopping action due to changed goal.`);
+        return "Action stopped by user.";
+    }
+
     try {
       // Check if pathfinder is available before using it
       if (!bot.pathfinder) {

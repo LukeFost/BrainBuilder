@@ -77,6 +77,13 @@ export const collectBlockAction: Action = {
       const neededCount = count - currentInvCount; // Target based on state
 
       for (let i = 0; i < neededCount; i++) {
+        // Check if goal changed mid-action (inside the loop)
+        if (currentState.currentGoal === "Waiting for instructions") {
+            console.log(`[Action:collectBlock] Stopping action due to changed goal.`);
+            message = `Action stopped by user after collecting ${collectedCount}.`;
+            break;
+        }
+
         const currentTotal = currentInvCount + i; // Track total count including initial inventory
         console.log(`[Action:collectBlock] Searching for block ${i + 1}/${neededCount} (total ${currentTotal + 1}/${count}) of '${actualBlockType}' (ID: ${blockId})`);
         const block = bot.findBlock({
@@ -95,7 +102,20 @@ export const collectBlockAction: Action = {
         // Use pathfinder goals directly
         const goal = new PathfinderGoals.GoalGetToBlock(block.position.x, block.position.y, block.position.z);
 
+        // Check if goal changed before moving
+        if (currentState.currentGoal === "Waiting for instructions") {
+            console.log(`[Action:collectBlock] Stopping action due to changed goal.`);
+            message = `Action stopped by user after collecting ${collectedCount}.`;
+            break;
+        }
         await bot.pathfinder.goto(goal);
+
+        // Check if goal changed after moving
+        if (currentState.currentGoal === "Waiting for instructions") {
+            console.log(`[Action:collectBlock] Stopping action due to changed goal.`);
+            message = `Action stopped by user after collecting ${collectedCount}.`;
+            break;
+        }
         console.log(`[Action:collectBlock] Reached block. Checking tool and attempting to dig.`);
 
         // Check if the block requires a tool and if we have the right one

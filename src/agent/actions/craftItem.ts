@@ -118,6 +118,11 @@ export const craftItemAction: Action = {
           }
 
           if (canCraft) {
+            // Check if goal changed before crafting
+            if (currentState.currentGoal === "Waiting for instructions") {
+                console.log(`[Action:craftItem] Stopping action due to changed goal.`);
+                return "Action stopped by user.";
+            }
             await bot.craft(handRecipe, count, undefined); // Pass undefined instead of null
             console.log(`[Action:craftItem] bot.craft called for ${count} ${normalizedItemName} (hand)`);
             // DO NOT update state inventory here.
@@ -174,6 +179,11 @@ export const craftItemAction: Action = {
           }
 
           if (canCraftWithTable) {
+            // Check if goal changed before crafting
+            if (currentState.currentGoal === "Waiting for instructions") {
+                console.log(`[Action:craftItem] Stopping action due to changed goal.`);
+                return "Action stopped by user.";
+            }
             await bot.craft(tableRecipe, count, craftingTableBlock); // Craft using table
             console.log(`[Action:craftItem] bot.craft called for ${count} ${normalizedItemName} using crafting table.`);
             // DO NOT update state inventory here.
