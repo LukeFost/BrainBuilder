@@ -146,7 +146,8 @@ bot.on('chat', async (username, message) => {
     currentAgentState.currentPlan = undefined; // Force replan
     currentAgentState.lastActionResult = `New goal received: ${newGoal}`; // Inform the agent loop
     bot.chat(`New goal set: ${newGoal}`);
-    await memoryManager.addToShortTerm(`Player ${username} set a new goal: ${newGoal}`);
+    // await memoryManager.addToShortTerm(`Player ${username} set a new goal: ${newGoal}`);
+    await memoryManager.addRecentAction(`Player command: goal`, `User ${username} set goal: ${newGoal}`);
     console.log(`[Chat] New goal set by ${username}: ${newGoal}`);
   } else if (message === 'status') {
     // Read from the shared state
@@ -154,9 +155,12 @@ bot.on('chat', async (username, message) => {
     bot.chat(status);
     console.log(`[Chat] Sending status to ${username}.`);
   } else if (message === 'memory') {
-    bot.chat(`Short-term memory: ${memoryManager.shortTerm.join(', ')}`);
-    // Add long-term summary if available in memoryManager
-    // bot.chat(`Long-term memory summary: ${memoryManager.longTermSummary}`);
+    const recentActionsText = memoryManager.shortTerm // Access the getter which returns RecentActionEntry[]
+                .slice(-5) // Get last 5
+                .map(e => `[${new Date(e.timestamp).toLocaleTimeString()}] ${e.action.substring(0,30)}... -> ${e.result.substring(0,40)}...`)
+                .join('\n');
+            bot.chat(`== Recent Actions (last 5) ==\n${recentActionsText || 'None'}`);
+            bot.chat(`== Long Term Summary ==\n${memoryManager.longTerm}`); // Access the getter
   } else if (message === 'inventory') {
     // Read from the shared state
     const items = Object.entries(currentAgentState.inventory.items)
@@ -180,15 +184,17 @@ Available commands:
     currentAgentState.currentPlan = undefined;
     currentAgentState.lastAction = undefined;
     currentAgentState.lastActionResult = 'Activity stopped by user.';
-    await memoryManager.addToShortTerm(`Player ${username} requested to stop current activity`);
+    // await memoryManager.addToShortTerm(`Player ${username} requested to stop current activity`);
+    await memoryManager.addRecentAction(`Player command: stop`, `User ${username} requested stop`);
   } else if (message === 'explore') {
     // Update shared state
     currentAgentState.currentGoal = 'Explore the surroundings and gather information';
     currentAgentState.currentPlan = undefined;
     currentAgentState.lastActionResult = 'Switched to exploration mode.';
     bot.chat('Switching to exploration mode');
-    await memoryManager.addToShortTerm(`Player ${username} requested exploration mode`);
-  } 
+    // await memoryManager.addToShortTerm(`Player ${username} requested exploration mode`);
+    await memoryManager.addRecentAction(`Player command: explore`, `User ${username} requested exploration`);
+  }
   // Handle general questions about goals
   else if (message.toLowerCase().includes('what') && 
           (message.toLowerCase().includes('goal') || 
@@ -320,7 +326,8 @@ async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentS
     executionSuccess = false;
   }
 
-  await memoryManager.addToShortTerm(`Action: ${actionToPerform} -> Result: ${result}`);
+  // await memoryManager.addToShortTerm(`Action: ${actionToPerform} -> Result: ${result}`);
+  await memoryManager.addRecentAction(actionToPerform, result); // Use the new method
 
   let updatedPlan = currentState.currentPlan;
 

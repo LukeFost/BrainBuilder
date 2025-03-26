@@ -27,13 +27,16 @@ Position: ${JSON.stringify(state.surroundings.position)}
 Inventory: ${JSON.stringify(state.inventory.items)}
 Nearby Blocks (sample): ${state.surroundings.nearbyBlocks?.slice(0, 10).join(', ') ?? 'None'}
 Nearby Entities: ${state.surroundings.nearbyEntities?.join(', ') ?? 'None'}
-Short-term Memory (last 5): ${state.memory.shortTerm?.slice(-5).join(' | ') ?? 'Empty'}
-Long-term Memory Summary: ${state.memory.longTerm ?? 'None available'}
+Recent Actions (last 5): ${state.memory.shortTerm.recentActions
+            .slice(-5) // Get last 5 actions
+            .map(entry => `(${new Date(entry.timestamp).toLocaleTimeString()}) ${entry.action} -> ${entry.result.substring(0, 50)}...`) // Format them
+            .join(' | ') || 'None'}
+Long-term Memory Summary: ${state.memory.longTerm || 'None available'} // Getter now provides summary string
 Previous Plan Steps (if any): ${state.currentPlan?.slice(0, 5).join(' -> ') ?? 'None'}
 Last Action: ${state.lastAction || 'None'}
 Last Action Result: ${state.lastActionResult || 'None'}
 `;
-    // Retrieve available skills/actions dynamically
+        // Retrieve available skills/actions dynamically
     const availableSkills = this.skillRepository.getAllSkills();
     // Combine skill descriptions from repository with built-in actions
     const actionDescriptions = [

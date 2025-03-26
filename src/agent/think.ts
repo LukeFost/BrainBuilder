@@ -27,11 +27,11 @@ export class ThinkManager {
     // Special handling for "Waiting for instructions" state
     if (currentState.currentGoal === 'Waiting for instructions') {
       // If we've already asked for help multiple times, do something more interesting
-      const recentActions = currentState.memory.shortTerm.slice(-10);
-      const askForHelpCount = recentActions.filter(action => 
-        action.includes('askForHelp') && 
-        (action.includes('What would you like me to do next?') || 
-         action.includes('goal has been achieved'))
+      const recentActions = currentState.memory.shortTerm.recentActions; // Get the array of action entries
+      const askForHelpCount = recentActions.filter(entry => // Filter based on the 'action' property
+        entry.action.includes('askForHelp') &&
+        (entry.action.includes('What would you like me to do next?') ||
+         entry.action.includes('goal has been achieved'))
       ).length;
       
       if (askForHelpCount >= 2) {
@@ -219,9 +219,9 @@ export class ThinkManager {
     if (goal.toLowerCase().includes('explore')) {
       // For exploration goals, we can consider them completed after a certain number of actions
       // or after visiting a certain number of unique locations
-      const actionCount = state.memory.shortTerm.filter(m => m.startsWith('Action:')).length;
-      if (actionCount >= 10) {
-        console.log(`[ThinkManager] Exploration goal considered complete after ${actionCount} actions`);
+      const actionCount = state.memory.shortTerm.recentActions.length; // Count entries in recentActions
+      if (actionCount >= 10) { // Check total number of recent actions recorded
+        console.log(`[ThinkManager] Exploration goal considered complete after ${actionCount} recent actions recorded`);
         return true;
       }
     }
