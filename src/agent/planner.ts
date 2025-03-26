@@ -98,6 +98,23 @@ Plan:`; // Ensure 'Plan:' label is present for potential parsing
         responseText = responseText.replace(/^\s*```(?:\w*\s*)?\n?/, '').replace(/\n?\s*```\s*$/, '');
         // Trim again after removing fences
         responseText = responseText.trim();
+        
+        // Add a check for common crafting failures and provide better error handling
+        if (state.lastActionResult && state.lastActionResult.includes("No recipe found for")) {
+            console.warn("[Planner] Detected recipe failure. Adding explicit crafting knowledge to prompt.");
+            
+            // Extract the item that failed crafting
+            const match = state.lastActionResult.match(/No recipe found for (\w+)/);
+            const failedItem = match ? match[1] : null;
+            
+            if (failedItem === "crafting_table") {
+                responseText = "collectBlock oak_log 1\ncraftItem oak_planks 4\ncraftItem crafting_table 1\n" + responseText;
+            } else if (failedItem === "wooden_pickaxe") {
+                responseText = "collectBlock oak_log 2\ncraftItem oak_planks 8\ncraftItem stick 4\ncraftItem crafting_table 1\nplaceBlock crafting_table\ncraftItem wooden_pickaxe 1\n" + responseText;
+            } else if (failedItem === "bread") {
+                responseText = "lookAround\ncollectBlock wheat 3\ncraftItem bread 1\n" + responseText;
+            }
+        }
 
         // Parse the cleaned response into individual steps, removing potential "Plan:" prefix and numbering
         const planSteps = responseText.replace(/^Plan:\s*/i, '').split('\n')

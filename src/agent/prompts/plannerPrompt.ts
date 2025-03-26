@@ -1,4 +1,12 @@
 export const plannerPromptTemplate = `
+# Minecraft Basic Knowledge
+- Wood logs must be collected first, then crafted into planks (4 planks per log)
+- Planks are crafted into a crafting table (4 planks in a 2x2 square)
+- Wooden tools require planks + sticks (sticks are made from 2 planks vertically)
+- Crafting sequence: logs → planks → sticks → tools
+- Seeds from tall grass can be planted on farmland (use hoe on dirt) to grow wheat
+- Wheat is used to make bread (3 wheat in a row)
+- Apples occasionally drop from oak leaves when broken
 You are a meticulous and efficient Minecraft agent planner. Your task is to create a concise, step-by-step plan to achieve a given goal, considering the current state, available actions (skills), and past experiences.
 
 Current State:
@@ -12,9 +20,9 @@ Available Actions (Skills):
 - askForHelp <question>: Use if stuck, goal unclear, resources missing after trying, or plan fails repeatedly
 
 Planning Guidelines:
-1.  **Analyze State:** Carefully consider inventory, surroundings (especially blocks directly above/below/adjacent), health, hunger, time, memory, and the last action's result. Check inventory *before* planning to collect items you already have.
+1.  **Analyze State:** Carefully consider inventory, surroundings (especially blocks directly above/below/adjacent), health, hunger, time, memory, and the last action's result. Check inventory *before* planning to collect items you already have. If health is critical (< 5), prioritize immediate survival actions over any other goal.
 2.  **Decompose Goal:** Break down the high-level goal into small, sequential, actionable steps using ONLY the available actions.
-3.  **Tool Check & Crafting:** If the goal involves mining stone or ores (like coal_ore, iron_ore), the FIRST step MUST be to ensure a pickaxe of the appropriate tier is in inventory. If not, the plan MUST start with crafting the required pickaxe (e.g., \`craftItem wooden_pickaxe 1\`). Only AFTER confirming/crafting the pickaxe should \`collectBlock\` for stone/ore be planned. Wood requires an axe (or fist), dirt/sand requires a shovel (or fist). **Efficiency:** If mining multiple stone/ore blocks, consider upgrading to a stone pickaxe (\`craftItem stone_pickaxe 1\`) if cobblestone is available, as it mines faster. Plan this upgrade *before* extensive mining.
+3.  **Tool Check & Crafting:** Always follow the correct crafting sequence: logs → planks → sticks → tools/crafting table. If the goal involves mining stone or ores (like coal_ore, iron_ore), the FIRST step MUST be to ensure a pickaxe of the appropriate tier is in inventory. If not, the plan MUST include the FULL sequence: 1) collect logs 2) craft planks 3) craft sticks 4) craft the required pickaxe. Only AFTER confirming/crafting the pickaxe should \`collectBlock\` for stone/ore be planned. Wood requires an axe (or fist), dirt/sand requires a shovel (or fist). **Efficiency:** If mining multiple stone/ore blocks, consider upgrading to a stone pickaxe if cobblestone is available, as it mines faster. Plan this upgrade *before* extensive mining.
 4.  **Prerequisites:** Ensure prerequisites are met *before* attempting an action. Examples: Have logs before crafting planks. Have a crafting table *nearby* (within 4-5 blocks) for table-required crafts (like pickaxes, torches). Have the correct tool equipped for \`collectBlock\`. If crafting fails due to missing table, the next plan MUST include \`placeBlock crafting_table\` first.
 5.  **Spatial Awareness:** Use the 'Spatial Memory Summary' to know about nearby blocks. Plan to \`moveToPosition\` known locations of needed blocks (like crafting tables or specific ores) if they are listed in memory and seem reachable.
 6.  **Vertical Movement / Escaping:** If the goal is to "get out", "escape", "reach surface", or move vertically significantly:
