@@ -5,7 +5,8 @@ const mcData = require('minecraft-data');
 import * as pathfinder from 'mineflayer-pathfinder';
 import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages";
-import { StateGraph, END } from "@langchain/langgraph";
+// Import START and Annotation
+import { StateGraph, END, START, Annotation } from "@langchain/langgraph";
 // Add near other @langchain imports
 import { RunnableLambda, RunnableConfig } from "@langchain/core/runnables";
 
