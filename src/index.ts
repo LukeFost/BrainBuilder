@@ -337,7 +337,8 @@ workflow.addNode("think", runThinkNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 
 // Define edges - use the correct type signatures
-workflow.setEntryPoint("observe"); // Start directly with observation node
+workflow.setEntryPoint("__start__"); // Use the default entry point
+workflow.addEdge("__start__", "observe"); // Connect entry to observe
 workflow.addEdge(["observe"], "think");
 workflow.addEdge(["think"], "act");
 workflow.addEdge(["act"], "observe"); // Complete the loop
