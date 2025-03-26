@@ -10,7 +10,7 @@ import { RunnableConfig } from "@langchain/core/runnables";
 
 import { Planner } from './agent/planner';
 import { MemoryManager } from './agent/memory';
-import { SkillRepository } from './agent/skills'; // Import SkillRepository
+import { SkillRepository } from './agent/skills/skillRepository'; // Import SkillRepository
 // Import actions from the new index file
 import { actions } from './agent/actions/index';
 import { State, Memory, Inventory, Surroundings } from './agent/types';
