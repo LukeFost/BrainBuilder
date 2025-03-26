@@ -225,81 +225,68 @@ bot.on('error', console.log);
 // --- LangGraph Definition ---
 
 // Define the state structure for the graph
-// This mirrors the State type but might be used specifically by LangGraph if needed
-interface AgentState {
-  state: State;
-  config?: RunnableConfig; // Optional config for LangGraph runs
-}
+// We will use the existing State interface directly
+// interface AgentState {
+//   state: State;
+//   config?: RunnableConfig; // Optional config for LangGraph runs
+// }
 
 // --- Graph Nodes ---
 // observeManager and mcDataInstance are now guaranteed to be initialized before startAgentLoop is called
 
-// Node functions operate on AgentState and return Partial<AgentState> for channel updates
-async function runObserveNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
+// Node functions now operate directly on State and return Partial<State>
+async function runObserveNodeWrapper(currentState: State): Promise<Partial<State>> {
   console.log("--- Running Observe Node ---");
-  let newState: State;
-  if (!observeManager || !mcDataInstance) { // Add check for mcDataInstance too
+  if (!observeManager || !mcDataInstance) {
       console.error("ObserveManager or mcDataInstance not initialized!");
-      newState = { ...agentState.state, lastActionResult: "Error: Core components not ready." };
-  } else {
-      // Pass the current state from the wrapper to the original observe function
-      const observationResult = await observeManager.observe(agentState.state);
-      // Merge the observation result back into the state within the wrapper
-      newState = { ...agentState.state, ...observationResult, memory: memoryManager.fullMemory };
+      // Return partial update for the State object
+      return { lastActionResult: "Error: Core components not ready." };
   }
-  // Return an object matching Partial<AgentState>
-  return { state: newState }; // Revert return statement structure
+  // Pass the current state directly
+  const observationResult = await observeManager.observe(currentState);
+  // Return the partial update, including updated memory
+  return { ...observationResult, memory: memoryManager.fullMemory };
 }
 
-async function runThinkNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
+async function runThinkNodeWrapper(currentState: State): Promise<Partial<State>> {
   console.log("--- Running Think Node ---");
-  let newState: State;
   try {
-    // Pass the current state from the wrapper to the original think function
-    const thinkResult = await thinkManager.think(agentState.state);
-    // Merge the think result back into the state within the wrapper
-    newState = { ...agentState.state, ...thinkResult };
+    // Pass the current state directly
+    const thinkResult = await thinkManager.think(currentState);
+    // Return the partial update from the think manager
+    return thinkResult;
   } catch (error: unknown) {
     console.error('[ThinkNode] Error during thinking process:', error);
-    // Update the state within the wrapper on error
-    newState = { ...agentState.state, lastAction: 'askForHelp An internal error occurred during thinking.' };
+    // Return partial update for the State object on error
+    return { lastAction: 'askForHelp An internal error occurred during thinking.' };
   }
-  // Return an object matching Partial<AgentState>
-  return { state: newState }; // Revert return statement structure
 }
 
-async function runValidateNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
+async function runValidateNodeWrapper(currentState: State): Promise<Partial<State>> {
   console.log("--- Running Validate Node ---");
-  let newState: State;
   try {
-    // Pass the current state from the wrapper to the validate function
-    const validateResult = await validateManager.validate(agentState.state);
-    // Merge the validation result back into the state within the wrapper
-    newState = { ...agentState.state, ...validateResult };
+    // Pass the current state directly
+    const validateResult = await validateManager.validate(currentState);
+    // Return the partial update from the validate manager
+    return validateResult;
   } catch (error: unknown) {
     console.error('[ValidateNode] Error during validation process:', error);
-    // Update the state within the wrapper on error
-    newState = {
-      ...agentState.state,
+    // Return partial update for the State object on error
+    return {
       lastAction: 'askForHelp',
       lastActionResult: 'An internal error occurred during validation.'
     };
   }
-  // Return an object matching Partial<AgentState>
-  return { state: newState }; // Revert return statement structure
 }
 
-async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
+async function runActNodeWrapper(currentState: State): Promise<Partial<State>> {
   console.log("--- Running Act Node ---");
-  const currentState = agentState.state; // Get state from wrapper
   const actionToPerform = currentState.lastAction;
 
   if (!actionToPerform) {
     console.log("[ActNode] No action decided. Skipping act node.");
-    // Return updated wrapper state
-    const newState = { ...currentState, lastActionResult: "No action to perform" };
-    // Return an object matching Partial<AgentState>
-    return { state: newState }; // Revert return statement structure
+    // Return partial update for the State object
+    return { lastActionResult: "No action to perform" };
   }
 
   const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
@@ -354,60 +341,50 @@ async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentS
       }
   } else if (!executionSuccess) {
       console.log(`[ActNode] Action "${actionToPerform}" failed or did not succeed. Plan step not completed.`);
-      // Let Think node handle failure and decide on replanning.
+      // Let Think/ResultAnalysis nodes handle failure.
   }
 
-  // Construct the new state for the wrapper
-  const newState = {
-      ...currentState,
+  // Return partial update for the State object
+  return {
       lastActionResult: result,
       currentPlan: updatedPlan,
       memory: memoryManager.fullMemory // Ensure memory is updated
   };
-  // Return an object matching Partial<AgentState>
-  return { state: newState }; // Revert return statement structure
 }
 
-async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
+async function runResultAnalysisNodeWrapper(currentState: State): Promise<Partial<State>> {
   console.log("--- Running Result Analysis Node ---");
-  let newState: State;
   try {
-    // Pass the current state from the wrapper to the result analysis function
-    const analysisResult = await resultAnalysisManager.analyze(agentState.state);
-    // Merge the analysis result back into the state within the wrapper
-    newState = { ...agentState.state, ...analysisResult };
+    // Pass the current state directly
+    const analysisResult = await resultAnalysisManager.analyze(currentState);
+    // Return the partial update from the analysis manager
+    return analysisResult;
   } catch (error: unknown) {
     console.error('[ResultAnalysisNode] Error during result analysis process:', error);
-    // Update the state within the wrapper on error
-    newState = {
-      ...agentState.state,
+    // Return partial update for the State object on error
+    return {
       lastAction: 'askForHelp',
       lastActionResult: 'An internal error occurred during result analysis.'
     };
   }
-  // Return an object matching Partial<AgentState>
-  return { state: newState }; // Revert return statement structure
 }
 
 
 // --- Build the Graph ---
-const workflow = new StateGraph<AgentState>({
+// Use State directly as the graph's state type
+const workflow = new StateGraph<State>({
+  // Define channels based on how State should be updated.
+  // A simple approach: manage the entire State object.
+  // Nodes return Partial<State>, and this reducer merges the updates.
   channels: {
-    // Channel for the 'state' property of AgentState
-    state: {
-        // Reducer operates on the State object. Ensure it always returns State.
-        // 'left' will be the result of 'default' on the first run.
-        value: (left: State, right?: State) => right ?? left,
+    __root__: { // Use __root__ channel to manage the whole state object
+        // Reducer merges partial updates into the existing state
+        value: (left: State, right: Partial<State>) => ({ ...left, ...right }),
         // Default provides the initial State object
-        default: (): State => currentAgentState // Explicitly type the default return
-    },
-    // Channel for the 'config' property of AgentState
-    config: {
-        // Reducer operates on the RunnableConfig object
-        value: (left?: RunnableConfig, right?: RunnableConfig) => right ?? left, // Take new config if provided
-        // Default provides the initial RunnableConfig object
-        default: () => ({ recursionLimit: 300 } as RunnableConfig) // Default config
+        default: (): State => currentAgentState
     }
+    // If specific properties need different update logic (e.g., lists),
+    // define separate channels for them instead of using __root__.
   }
 });
 
@@ -426,12 +403,12 @@ workflow.setEntryPoint("observe"); // Start with observe node
 workflow.addEdge("observe", "think");
 
 // Define the conditional logic after the 'think' node
-// Ensure the input type is explicitly AgentState
-function shouldContinueOrEnd(agentState: AgentState): "end" | "validate" {
-  const shouldEnd = agentState.state.currentGoal === "Waiting for instructions" &&
-                    agentState.state.lastAction?.includes("askForHelp") &&
-                    !agentState.state.lastActionResult?.includes("New goal");
-  
+// Input is now State directly
+function shouldContinueOrEnd(currentState: State): "end" | "validate" {
+  const shouldEnd = currentState.currentGoal === "Waiting for instructions" &&
+                    currentState.lastAction?.includes("askForHelp") &&
+                    !currentState.lastActionResult?.includes("New goal");
+
   if (shouldEnd) {
     console.log("[Graph Condition] Think -> END");
     return "end";
@@ -474,13 +451,13 @@ async function startAgentLoop() {
   try {
     // --- Initial observation (remains outside the loop) ---
     console.log("--- Initial Observation ---");
-    // Use the wrapper node function for consistency, passing the initial AgentState
-    const initialObservationResult = await runObserveNodeWrapper({ state: currentAgentState });
-    if (initialObservationResult.state) {
-        currentAgentState = initialObservationResult.state; // Update shared state from the wrapper's result
-        console.log("Initial State Populated:", JSON.stringify(currentAgentState, null, 2)); // Log initial state clearly
-    } else {
-        console.error("Failed to get initial state from observation.");
+    // Use the wrapper node function directly with the current State
+    const initialObservationUpdate = await runObserveNodeWrapper(currentAgentState);
+    // Merge the initial observation update into the current state
+    currentAgentState = { ...currentAgentState, ...initialObservationUpdate };
+    // Check if the update contained an error message (simple check)
+    if (currentAgentState.lastActionResult?.includes("Error:")) {
+        console.error("Failed to get valid initial state from observation:", currentAgentState.lastActionResult);
         return; // Stop if initial observation fails
     }
     // --- End Initial Observation ---
@@ -498,23 +475,23 @@ async function startAgentLoop() {
 
         console.log(`--- Starting New Graph Invocation for Goal: "${currentAgentState.currentGoal}" ---`);
 
-        // Invoke the graph with the current state wrapped in AgentState
-        // The result will be the final AgentState when the graph run finishes (hits END or limit)
-        const result: AgentState | undefined = await app.invoke({ state: currentAgentState }, streamConfig);
+        // Invoke the graph with the current State object directly
+        // The result will be the final State object after the graph run
+        const finalState: State | undefined = await app.invoke(currentAgentState, streamConfig);
 
         // Update the shared state with the final result of the graph execution
-        if (result && result.state) {
-            currentAgentState = result.state; // Update shared state with the final state from the graph run
+        if (finalState) {
+            currentAgentState = finalState; // Update shared state with the final state from the graph run
             console.log("=== Graph Invocation Complete ===");
             // Check if the graph ended because the goal was completed
             if (currentAgentState.currentGoal === "Waiting for instructions") {
                  console.log("Goal completed! Waiting for new instructions...");
-                 // No need to chat here, the 'think' node should have handled the 'askForHelp' action
+                 // The 'think' node should have set the appropriate lastAction ('askForHelp')
             }
             // console.log("Final State after invocation:", JSON.stringify(currentAgentState, null, 2)); // Optional detailed log
         } else {
-            console.warn("[Agent Loop] Graph invocation finished with unexpected result:", result);
-            // Avoid getting stuck, maybe force observation or wait
+            console.warn("[Agent Loop] Graph invocation finished with unexpected result (undefined).");
+            // Avoid getting stuck, maybe force observation or wait? Or log error and continue?
              await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
