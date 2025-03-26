@@ -424,7 +424,8 @@ workflow.addEdge("observe", "think");
 // Add conditional edges
 workflow.addConditionalEdges(
   "think",
-  (state: State) => {
+  // Use the type directly derived from the Annotation object
+  (state: typeof StateAnnotation.State) => {
     // Check for the 'next' state property added in think.ts for specific routing
     if (state.next === "wait") {
         // If waiting for instructions, potentially loop back or end
