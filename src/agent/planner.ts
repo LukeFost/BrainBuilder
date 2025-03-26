@@ -75,19 +75,24 @@ Plan:`; // Ensure 'Plan:' label is present for potential parsing
         const response = await this.model.invoke(prompt); // Pass prompt directly
         let responseText = response.content.toString().trim(); // Trim whitespace first
 
-        // Remove potential markdown code block fences (``` optionally followed by language name)
-        responseText = responseText.replace(/^```(?:\w*\s*)?\n?/, '').replace(/\n?```$/, '');
+        // More robust removal of markdown code block fences (``` optionally followed by language name)
+        // Handles potential whitespace around fences and variations
+        responseText = responseText.replace(/^\s*```(?:\w*\s*)?\n?/, '').replace(/\n?\s*```\s*$/, '');
         // Trim again after removing fences
         responseText = responseText.trim();
 
         // Parse the cleaned response into individual steps, removing potential "Plan:" prefix and numbering
         const planSteps = responseText.replace(/^Plan:\s*/i, '').split('\n')
-          .map(line => line.trim().replace(/^\d+\.\s*/, '')) // Remove numbering
+          .map(line => line.trim().replace(/^\d+\.\s*/, '')) // Remove numbering and trim each line
           .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('#')) // Filter empty lines/comments
-          .filter(line => line !== '```'); // Filter out ``` lines
+          .filter(line => line.trim() !== '```'); // Trim before comparing to filter out ``` lines robustly
 
         console.log("[Planner] Generated Plan:", planSteps);
-        if (planSteps.length === 0) {
+        if (planSteps.length === 0 && responseText.length > 0) { // Check if responseText wasn't empty before filtering
+             console.warn("[Planner] Plan resulted in empty steps after filtering. Original response text:", response.content.toString());
+             // Decide if askForHelp is still the right fallback
+             return ['askForHelp My plan generation resulted in empty steps after filtering. What should I do?'];
+        } else if (planSteps.length === 0) { // Original check for truly empty generation
             console.warn("[Planner] LLM generated an empty plan. Defaulting to askForHelp.");
             return ['askForHelp I generated an empty plan. What should I do next?'];
         }
