@@ -406,32 +406,31 @@ workflow.setEntryPoint("observe" as any); // Start with observe node
 // Then add the edges to form a cycle with conditional ending
 workflow.addEdge(["observe"] as any, "think" as any);
 
-// Add conditional edge from think to either act or END
-workflow.addEdge(
-  ["think"] as any, 
-  END as any, 
-  (agentState: AgentState) => {
-    // End the graph execution when:
-    // 1. Waiting for instructions state AND
-    // 2. We've asked for help at least once AND
-    // 3. No new goal has been set (lastActionResult doesn't contain "New goal")
-    return agentState.state.currentGoal === "Waiting for instructions" && 
-           agentState.state.lastAction?.includes("askForHelp") &&
-           !agentState.state.lastActionResult?.includes("New goal");
+// Define the conditional logic after the 'think' node
+function shouldContinueOrEnd(agentState: AgentState): "end" | "validate" {
+  const shouldEnd = agentState.state.currentGoal === "Waiting for instructions" &&
+                    agentState.state.lastAction?.includes("askForHelp") &&
+                    !agentState.state.lastActionResult?.includes("New goal");
+  
+  if (shouldEnd) {
+    console.log("[Graph Condition] Think -> END");
+    return "end";
+  } else {
+    console.log("[Graph Condition] Think -> validate");
+    return "validate";
+  }
+}
+
+// Add conditional edges from 'think'
+workflow.addConditionalEdges(
+  "think" as any, // Source node
+  shouldContinueOrEnd, // Function to decide the next node
+  { // Mapping of function return values to target nodes
+    "end": END as any,
+    "validate": "validate" as any,
   }
 );
 
-// Continue with validate if the END condition isn't met
-workflow.addEdge(
-  ["think"] as any, 
-  "validate" as any, 
-  (agentState: AgentState) => {
-    // Continue to validate if we're not ending
-    return !(agentState.state.currentGoal === "Waiting for instructions" && 
-             agentState.state.lastAction?.includes("askForHelp") &&
-             !agentState.state.lastActionResult?.includes("New goal"));
-  }
-);
 
 // Validate always goes to act
 workflow.addEdge(["validate"] as any, "act" as any);
