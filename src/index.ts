@@ -410,7 +410,7 @@ workflow.addEdge(["observe"] as any, "think" as any);
 workflow.addEdge(
   ["think"] as any, 
   END as any, 
-  (agentState: AgentState, config?: RunnableConfig) => {
+  (agentState: AgentState) => {
     // End the graph execution when:
     // 1. Waiting for instructions state AND
     // 2. We've asked for help at least once AND
@@ -425,7 +425,7 @@ workflow.addEdge(
 workflow.addEdge(
   ["think"] as any, 
   "validate" as any, 
-  (agentState: AgentState, config?: RunnableConfig) => {
+  (agentState: AgentState) => {
     // Continue to validate if we're not ending
     return !(agentState.state.currentGoal === "Waiting for instructions" && 
              agentState.state.lastAction?.includes("askForHelp") &&
