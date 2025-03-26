@@ -251,7 +251,7 @@ async function runObserveNodeWrapper(agentState: AgentState): Promise<Partial<Ag
   return { state: newState }; // Revert return statement structure
 }
 
-async function runThinkNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
+async function runThinkNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> { // Revert return type
   console.log("--- Running Think Node ---");
   let newState: State;
   try {
