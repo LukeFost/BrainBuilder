@@ -182,6 +182,21 @@ Available commands:
     currentAgentState.lastActionResult = 'Switched to exploration mode.';
     bot.chat('Switching to exploration mode');
     await memoryManager.addToShortTerm(`Player ${username} requested exploration mode`);
+  } 
+  // Handle general questions about goals
+  else if (message.toLowerCase().includes('what') && 
+          (message.toLowerCase().includes('goal') || 
+           message.toLowerCase().includes('doing') || 
+           message.toLowerCase().includes('task'))) {
+    // Respond to questions about the goal
+    const currentGoal = currentAgentState.currentGoal || 'No specific goal set';
+    bot.chat(`My current goal is: ${currentGoal}`);
+    console.log(`[Chat] Responding to goal question from ${username}`);
+    await memoryManager.addToShortTerm(`Player ${username} asked about my goal`);
+  }
+  // Default response for unrecognized messages
+  else {
+    bot.chat(`I'm not sure how to respond to that. Type 'help' for a list of commands I understand.`);
   }
   // Remove 'follow' command for now as it's not implemented as an action
   // else if (message.startsWith('follow ')) {
@@ -396,13 +411,16 @@ async function startAgentLoop() {
              console.log("Graph stream event without specific node output:", event);
         }
 
-        // Termination condition: Check if goal is completed or if bot is asking for a new goal
+        // Goal completion condition: Reset goal state but keep the loop running
         if (currentAgentState.lastAction && 
             (currentAgentState.lastAction.includes("goal has been achieved") || 
              currentAgentState.lastAction.includes("Goal completed!"))) {
-          console.log("Agent loop terminating: Goal completed!");
+          console.log("Goal completed! Waiting for new instructions...");
           bot.chat("I've completed my goal! What would you like me to do next?");
-          break; // Exit the for await loop
+          // Don't break the loop, just reset the goal to wait for new instructions
+          currentAgentState.currentGoal = "Waiting for instructions";
+          currentAgentState.currentPlan = undefined;
+          // Continue the loop
         }
     }
     console.log("Agent loop finished or was interrupted.");
