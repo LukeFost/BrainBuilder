@@ -13,7 +13,7 @@ import { MemoryManager } from './agent/memory';
 import { SkillRepository } from './agent/skills/skillRepository'; // Import SkillRepository
 // Import actions from the new index file
 import { actions } from './agent/actions/index';
-import { State, Inventory, Surroundings, RecentActionEntry } from './agent/types'; // Remove 'Memory', Add 'RecentActionEntry' if needed elsewhere, or remove if not. Let's assume it might be needed for type safety in chat handlers.
+import { State, Inventory, Surroundings, RecentActionEntry, StructuredMemory } from './agent/types'; // Remove 'Memory', Add 'RecentActionEntry' if needed elsewhere, or remove if not. Let's assume it might be needed for type safety in chat handlers.
 import { ThinkManager } from './agent/think';
 import { ObserveManager } from './agent/observe';
 import { ValidateManager } from './agent/validate';
@@ -371,8 +371,11 @@ async function runResultAnalysisNodeWrapper(currentState: State): Promise<Partia
 
 
 // --- Build the Graph ---
-// Use State directly as the graph's state type
-const workflow = new StateGraph<State>({
+// Define the possible node names explicitly
+type AgentNode = "observe" | "think" | "validate" | "act" | "resultAnalysis";
+
+// Use State directly as the graph's state type, including AgentNode
+const workflow = new StateGraph<State, Partial<State>, AgentNode>({
   // Define a channel for each property in the State interface.
   // Nodes return Partial<State>, and these reducers merge the updates.
   channels: {
