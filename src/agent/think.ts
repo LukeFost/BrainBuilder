@@ -7,6 +7,14 @@ export class ThinkManager {
   private consecutiveFailureCount: number = 0;
   private maxConsecutiveFailures: number = 2; // Replan after 2 consecutive failures of the *same* action
 
+  // --- New properties for loop detection ---
+  private actionHistory: { action: string; result: string; timestamp: number }[] = [];
+  private readonly maxHistorySize = 20; // How many recent actions to store for pattern matching
+  private readonly loopDetectionThreshold = 3; // How many repetitions trigger a breakout
+  private readonly loopPatternLength = 3; // Minimum length of a repeating pattern (e.g., A->B->C repeats)
+  private lastBreakoutAction: string | null = null; // Prevent immediate re-breakout
+  // --- End new properties ---
+
   constructor(planner: Planner) { // Accept Planner instance
     this.planner = planner; // Store the passed-in planner instance
   }
@@ -77,7 +85,30 @@ export class ThinkManager {
         currentPlan: ["wakeUp"]
       };
     }
-    
+
+    // --- Loop Detection ---
+    const loopDetected = this.detectLoop();
+    if (loopDetected && currentState.lastAction !== this.lastBreakoutAction) {
+        console.warn(`[ThinkManager] Loop detected! Triggering breakout strategy.`);
+        const breakoutAction = this.getBreakoutAction(currentState);
+        this.lastBreakoutAction = breakoutAction; // Record the breakout action
+        // Clear history partially to prevent immediate re-detection after breakout
+        this.actionHistory = this.actionHistory.slice(-Math.floor(this.maxHistorySize / 2));
+        return {
+            lastAction: breakoutAction,
+            currentPlan: [breakoutAction], // Set plan to just the breakout action
+            lastActionResult: "Attempting loop breakout strategy." // Add context
+        };
+    } else if (loopDetected && currentState.lastAction === this.lastBreakoutAction) {
+        console.log("[ThinkManager] Loop detected, but last action was already a breakout. Proceeding normally.");
+    }
+    // Reset breakout tracker if no loop detected or if last action wasn't a breakout
+    if (!loopDetected || currentState.lastAction !== this.lastBreakoutAction) {
+         this.lastBreakoutAction = null;
+    }
+    // --- End Loop Detection ---
+
+
     let needsReplan = false;
     let reason = "";
 
@@ -276,7 +307,86 @@ export class ThinkManager {
     // Check if we're currently sleeping
     const isSleeping = state.lastAction === "sleep" && 
                       state.lastActionResult?.toLowerCase().includes("sleeping");
-    
+
     return isDayTime && (isSleeping === true);
   }
+
+        // Add these methods inside the ThinkManager class
+
+        /**
+         * Detects repeating sequences of actions in the history.
+         */
+        private detectLoop(): boolean {
+            if (this.actionHistory.length < this.loopPatternLength * this.loopDetectionThreshold) {
+                return false; // Not enough history to detect a loop
+            }
+
+            // Check for repeating patterns of length `loopPatternLength`
+            const lastPattern = this.actionHistory.slice(-this.loopPatternLength);
+            if (lastPattern.length < this.loopPatternLength) return false; // Should not happen with check above, but safety
+
+            let repetitions = 0;
+            for (let i = 1; i < this.loopDetectionThreshold; i++) {
+                const previousPattern = this.actionHistory.slice(
+                    -(this.loopPatternLength * (i + 1)),
+                    -(this.loopPatternLength * i)
+                );
+
+                if (previousPattern.length < this.loopPatternLength) break; // Not enough history further back
+
+                // Compare action strings of the patterns
+                const actionsMatch = lastPattern.every((actionEntry, index) =>
+                    actionEntry.action === previousPattern[index]?.action
+                );
+
+                if (actionsMatch) {
+                    repetitions++;
+                } else {
+                    break; // Sequence broken
+                }
+            }
+
+            // If the pattern repeated enough times consecutively
+            if (repetitions >= this.loopDetectionThreshold - 1) { // Need threshold-1 matches for threshold repetitions
+                const repeatingActions = lastPattern.map(e => e.action).join(' -> ');
+                console.log(`[ThinkManager] Detected repeating pattern (${repetitions + 1} times): ${repeatingActions}`);
+                return true;
+            }
+
+            return false;
+        }
+
+        /**
+         * Selects a random breakout strategy.
+         */
+        private getBreakoutAction(currentState: State): string {
+            const strategies = [
+                'explore', // Force exploration
+                'lookAround', // Force observation
+                'askHelpLoop' // Ask for help specifically about the loop
+            ];
+
+            const choice = Math.floor(Math.random() * strategies.length);
+
+            switch (strategies[choice]) {
+                case 'explore':
+                    const currentPos = currentState.surroundings.position;
+                    const randomOffset = Math.floor(Math.random() * 16) - 8; // -8 to +8
+                    const newX = Math.floor(currentPos.x) + randomOffset;
+                    const newZ = Math.floor(currentPos.z) + randomOffset;
+                    const newY = Math.floor(currentPos.y);
+                    console.log(`[ThinkManager] Breakout Strategy: Explore to ${newX},${newY},${newZ}`);
+                    return `moveToPosition ${newX} ${newY} ${newZ}`;
+                case 'lookAround':
+                    console.log(`[ThinkManager] Breakout Strategy: Look Around`);
+                    return 'lookAround';
+                case 'askHelpLoop':
+                default:
+                    const recentPattern = this.actionHistory.slice(-this.loopPatternLength).map(e => e.action).join('; ');
+                    console.log(`[ThinkManager] Breakout Strategy: Ask for Help`);
+                    return `askForHelp I seem to be stuck in a loop repeating actions like: ${recentPattern}. What should I do differently?`;
+            }
+        }
+
+        // ... (isGoalCompleted, shouldSleep, shouldWakeUp methods remain here) ...
 }
