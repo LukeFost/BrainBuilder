@@ -15,16 +15,17 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@langchain/langgraph": "^0.2.59",
     "@langchain/langgraph-sdk": "^0.0.60",
     "@langchain/openai": "^0.5.0",
+    "@types/eslint": "^8.56.10",
     "dotenv": "^16.4.7",
+    "eslint": "^8.57.0",
+    "minecraft-data": "^3.58.1",
     "mineflayer": "^4.27.0",
     "mineflayer-pathfinder": "^2.4.5",
-    "minecraft-data": "^3.58.1",
-    "vec3": "^0.1.8",
-    "@types/eslint": "^8.56.10", // Keep types as dev or move to dep? Usually dev, but let's try dep for now.
-    "eslint": "^8.57.0",
-    "ses": "^1.3.0"
+    "ses": "^1.12.0",
+    "vec3": "^0.1.8"
   },
   "devDependencies": {
     "@types/node": "^22.13.13",
