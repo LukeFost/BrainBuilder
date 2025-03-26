@@ -234,34 +234,36 @@ interface AgentState {
 // --- Graph Nodes ---
 // observeManager and mcDataInstance are now guaranteed to be initialized before startAgentLoop is called
 
-// Node functions now operate on the AgentState wrapper
-async function runObserveNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+// Node functions now operate on the AgentState wrapper and return the expected channel update structure
+async function runObserveNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
   console.log("--- Running Observe Node ---");
+  let newState: State;
   if (!observeManager || !mcDataInstance) { // Add check for mcDataInstance too
       console.error("ObserveManager or mcDataInstance not initialized!");
-      return { state: { ...agentState.state, lastActionResult: "Error: Core components not ready." } };
+      newState = { ...agentState.state, lastActionResult: "Error: Core components not ready." };
+  } else {
+      // Pass the current state from the wrapper to the original observe function
+      const observationResult = await observeManager.observe(agentState.state);
+      // Merge the observation result back into the state within the wrapper
+      newState = { ...agentState.state, ...observationResult, memory: memoryManager.fullMemory };
   }
-  // Pass the current state from the wrapper to the original observe function
-  const observationResult = await observeManager.observe(agentState.state);
-  // Merge the observation result back into the state within the wrapper
-  const newState = { ...agentState.state, ...observationResult, memory: memoryManager.fullMemory };
-  return { state: newState };
+  return { state: newState }; // Update return statement
 }
 
-async function runThinkNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+async function runThinkNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
   console.log("--- Running Think Node ---");
+  let newState: State;
   try {
     // Pass the current state from the wrapper to the original think function
     const thinkResult = await thinkManager.think(agentState.state);
     // Merge the think result back into the state within the wrapper
-    const newState = { ...agentState.state, ...thinkResult };
-    return { state: newState };
+    newState = { ...agentState.state, ...thinkResult };
   } catch (error: unknown) {
     console.error('[ThinkNode] Error during thinking process:', error);
     // Update the state within the wrapper on error
-    const newState = { ...agentState.state, lastAction: 'askForHelp An internal error occurred during thinking.' };
-    return { state: newState };
+    newState = { ...agentState.state, lastAction: 'askForHelp An internal error occurred during thinking.' };
   }
+  return { state: newState }; // Update return statement
 }
 
 async function runValidateNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
@@ -284,7 +286,7 @@ async function runValidateNodeWrapper(agentState: AgentState): Promise<Partial<A
   }
 }
 
-async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+async function runActNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
   console.log("--- Running Act Node ---");
   const currentState = agentState.state; // Get state from wrapper
   const actionToPerform = currentState.lastAction;
@@ -292,7 +294,8 @@ async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentS
   if (!actionToPerform) {
     console.log("[ActNode] No action decided. Skipping act node.");
     // Return updated wrapper state
-    return { state: { ...currentState, lastActionResult: "No action to perform" } };
+    const newState = { ...currentState, lastActionResult: "No action to perform" };
+    return { state: newState }; // Update return statement
   }
 
   const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
@@ -358,11 +361,12 @@ async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentS
       memory: memoryManager.fullMemory // Ensure memory is updated
   };
   // Return the updated wrapper state
-  return { state: newState };
+  return { state: newState }; // Update return statement
 }
 
-async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
   console.log("--- Running Result Analysis Node ---");
+  let newState: State;
   try {
     // Pass the current state from the wrapper to the result analysis function
     const analysisResult = await resultAnalysisManager.analyze(agentState.state);
@@ -387,10 +391,11 @@ const workflow = new StateGraph<AgentState>({
   channels: {
     // Channel for the 'state' property of AgentState
     state: {
-        // Reducer operates on the State object
-        value: (left?: State, right?: State) => right ?? left, // Take the new state if provided, else keep the old
+        // Reducer operates on the State object. Ensure it always returns State.
+        // 'left' will be the result of 'default' on the first run.
+        value: (left: State, right?: State) => right ?? left,
         // Default provides the initial State object
-        default: () => currentAgentState // The initial value for the 'state' channel is the initial State object
+        default: (): State => currentAgentState // Explicitly type the default return
     },
     // Channel for the 'config' property of AgentState
     config: {
@@ -409,14 +414,15 @@ workflow.addNode("validate", runValidateNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 workflow.addNode("resultAnalysis", runResultAnalysisNodeWrapper);
 
-// Define edges - use the correct type signatures with type assertions
+// Define edges without 'as any' for better type checking
 // First set the entry point
-workflow.setEntryPoint("observe" as any); // Start with observe node
+workflow.setEntryPoint("observe"); // Start with observe node
 
 // Then add the edges to form a cycle with conditional ending
-workflow.addEdge(["observe"] as any, "think" as any);
+workflow.addEdge("observe", "think");
 
 // Define the conditional logic after the 'think' node
+// Ensure the input type is explicitly AgentState
 function shouldContinueOrEnd(agentState: AgentState): "end" | "validate" {
   const shouldEnd = agentState.state.currentGoal === "Waiting for instructions" &&
                     agentState.state.lastAction?.includes("askForHelp") &&
@@ -433,23 +439,23 @@ function shouldContinueOrEnd(agentState: AgentState): "end" | "validate" {
 
 // Add conditional edges from 'think'
 workflow.addConditionalEdges(
-  "think" as any, // Source node
+  "think", // Source node
   shouldContinueOrEnd, // Function to decide the next node
   { // Mapping of function return values to target nodes
-    "end": END as any,
-    "validate": "validate" as any,
+    "end": END, // Use END directly
+    "validate": "validate",
   }
 );
 
 
 // Validate always goes to act
-workflow.addEdge(["validate"] as any, "act" as any);
+workflow.addEdge("validate", "act");
 
 // Act now goes to result analysis instead of directly to observe
-workflow.addEdge(["act"] as any, "resultAnalysis" as any);
+workflow.addEdge("act", "resultAnalysis");
 
 // Result analysis goes to observe to complete the loop
-workflow.addEdge(["resultAnalysis"] as any, "observe" as any);
+workflow.addEdge("resultAnalysis", "observe");
 
 // Compile the graph
 const app = workflow.compile();
