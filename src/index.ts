@@ -418,11 +418,11 @@ workflow.addNode("act", runActNode);
 workflow.addNode("resultAnalysis", runResultAnalysisNode);
 
 // Set the entry point and add edges with the proper syntax
-workflow.addEdge(START, "observe"); // Use START constant
-workflow.addEdge("observe", "think");
+(workflow as any).addEdge(START, "observe"); // Use START constant
+(workflow as any).addEdge("observe", "think");
 
 // Add conditional edges
-workflow.addConditionalEdges(
+(workflow as any).addConditionalEdges(
   "think",
   // Use the type directly derived from the Annotation object
   (state: typeof StateAnnotation.State) => {
