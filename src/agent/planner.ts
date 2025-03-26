@@ -29,7 +29,8 @@ Nearby Blocks (sample): ${state.surroundings.nearbyBlocks?.slice(0, 10).join(', 
 Nearby Entities: ${state.surroundings.nearbyEntities?.join(', ') ?? 'None'}
 Recent Actions (last 5): ${state.memory.shortTerm.recentActions
             .slice(-5) // Get last 5 actions
-            .map(entry => `(${new Date(entry.timestamp).toLocaleTimeString()}) ${entry.action} -> ${entry.result.substring(0, 50)}...`) // Format them
+            // Add type annotation here:
+            .map((entry: RecentActionEntry) => `(${new Date(entry.timestamp).toLocaleTimeString()}) ${entry.action} -> ${entry.result.substring(0, 50)}...`) // Format them
             .join(' | ') || 'None'}
 Long-term Memory Summary: ${state.memory.longTerm || 'None available'} // Getter now provides summary string
 Previous Plan Steps (if any): ${state.currentPlan?.slice(0, 5).join(' -> ') ?? 'None'}

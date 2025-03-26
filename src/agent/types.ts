@@ -1,14 +1,3 @@
-export interface State {
-    memory: Memory;
-    inventory: Inventory;
-    surroundings: Surroundings;
-    currentGoal?: string;
-    currentPlan?: string[];
-    lastAction?: string; // The action decided by the 'think' node
-    lastActionResult?: string; // The result of the 'act' node
-    next?: string; // Helper for conditional edges in the graph
-  }
-
 // --- New Memory Structure Types ---
 
 export interface RecentActionEntry {

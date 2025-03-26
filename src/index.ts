@@ -13,7 +13,7 @@ import { MemoryManager } from './agent/memory';
 import { SkillRepository } from './agent/skills/skillRepository'; // Import SkillRepository
 // Import actions from the new index file
 import { actions } from './agent/actions/index';
-import { State, Memory, Inventory, Surroundings } from './agent/types';
+import { State, Inventory, Surroundings, RecentActionEntry } from './agent/types'; // Remove 'Memory', Add 'RecentActionEntry' if needed elsewhere, or remove if not. Let's assume it might be needed for type safety in chat handlers.
 import { ThinkManager } from './agent/think';
 import { ObserveManager } from './agent/observe';
 import { ValidateManager } from './agent/validate';

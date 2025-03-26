@@ -51,7 +51,8 @@ export class ThinkManager {
     if (currentState.currentGoal === 'Waiting for instructions') {
       // If we've already asked for help multiple times, do something more interesting
       const recentActions = currentState.memory.shortTerm.recentActions; // Get the array of action entries
-      const askForHelpCount = recentActions.filter(entry => // Filter based on the 'action' property
+      // Add type annotation here:
+      const askForHelpCount = recentActions.filter((entry: RecentActionEntry) => // Filter based on the 'action' property
         entry.action.includes('askForHelp') &&
         (entry.action.includes('What would you like me to do next?') ||
          entry.action.includes('goal has been achieved'))
