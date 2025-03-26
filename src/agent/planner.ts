@@ -10,23 +10,35 @@ export class Planner {
       modelName: 'gpt-4o',
       temperature: 0.2,
     });
+    this.model = new ChatOpenAI({
+      openAIApiKey: apiKey,
+      modelName: 'gpt-4o', // Ensure this is the desired model
+      temperature: 0.1, // Lower temperature for more deterministic plans
+    });
   }
-  
-  async createPlan(state: State, goal: string): Promise<string[]> {
-    const prompt = `
-You are a Minecraft agent tasked with creating a plan to achieve a goal.
 
-Current Health: ${state.surroundings.health}
-Current Hunger: ${state.surroundings.food}
-Current inventory: ${JSON.stringify(state.inventory)}
-Current surroundings: ${JSON.stringify(state.surroundings)}
-Short-term memory: ${state.memory.shortTerm.join('\n')}
-Long-term memory: ${state.memory.longTerm}
+  async createPlan(state: State, goal: string): Promise<string[]> {
+    // Add health/hunger to the state summary for better context
+    const stateSummary = `
+Current Health: ${state.surroundings.health ?? 'Unknown'}
+Current Hunger: ${state.surroundings.food ?? 'Unknown'}
+Position: ${JSON.stringify(state.surroundings.position)}
+Inventory: ${JSON.stringify(state.inventory.items)}
+Nearby Blocks (sample): ${state.surroundings.nearbyBlocks.slice(0, 10).join(', ')}
+Nearby Entities: ${state.surroundings.nearbyEntities.join(', ')}
+Short-term Memory (last 3): ${state.memory.shortTerm.slice(-3).join(' | ')}
+Last Action Result: ${state.lastActionResult || 'None'}
+`;
+
+    const prompt = `
+You are a Minecraft agent planner. Your task is to create a concise, step-by-step plan to achieve a goal, considering the current state.
+
+Current State:
+${stateSummary}
 
 Goal: ${goal}
 
-Create a step-by-step plan to achieve this goal. Each step should be a single action.
-Available actions:
+Available Actions:
 - collectBlock <blockType> <count>
 - moveToPosition <x> <y> <z>
 - craftItem <itemName> <count>
@@ -36,67 +48,39 @@ Available actions:
 - sleep
 - wakeUp
 - dropItem <itemName> <count>
-- generateAndExecuteCode <task description string> (Use for complex/novel tasks not covered by other actions)
+- generateAndExecuteCode <task description string> (Use ONLY for complex tasks not covered by other actions)
+- askForHelp <question> (Use if stuck, goal unclear, or resources missing after trying)
 
-Output your plan as a list of steps, one per line. Prefer specific actions when possible. Use generateAndExecuteCode only when necessary.
-`;
+Planning Guidelines:
+1. Break the goal into small, actionable steps using ONLY the available actions.
+2. Prioritize resource collection before crafting/building. Check inventory first.
+3. If the last action failed (see state summary), the new plan should address the failure (e.g., get missing items).
+4. Use 'askForHelp' if truly stuck or the goal is ambiguous.
+5. Output ONLY the list of actions, one action per line. No explanations, numbering, or intro/outro text.
 
-    const response = await this.model.invoke([
-      { role: 'system', content: prompt }
-    ]);
-    
-    // Parse the response into individual steps
-    return response.content.toString().split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-  }
-  
-  async decideNextAction(state: State): Promise<string> {
-    let prompt = `
-You are a Minecraft agent deciding what to do next.
+Plan:`; // Added 'Plan:' label for clarity
 
-Current Health: ${state.surroundings.health}
-Current Hunger: ${state.surroundings.food}
-Current inventory: ${JSON.stringify(state.inventory)}
-Current surroundings: ${JSON.stringify(state.surroundings)}
-Short-term memory: ${state.memory.shortTerm.join('\n')}
-Long-term memory: ${state.memory.longTerm}
+    try {
+        const response = await this.model.invoke(prompt); // Pass prompt directly
+        const responseText = response.content.toString();
 
-Current goal: ${state.currentGoal || 'None set'}
-Current plan: ${state.currentPlan?.join('\n') || 'No plan'}
-Last action: ${state.lastAction || 'None'}
-Last action result: ${state.lastActionResult || 'None'}
+        // Parse the response into individual steps, removing potential "Plan:" prefix and numbering
+        const planSteps = responseText.replace(/^Plan:\s*/i, '').split('\n')
+          .map(line => line.trim().replace(/^\d+\.\s*/, '')) // Remove numbering
+          .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('#')); // Filter empty lines/comments
 
-Decide what to do next. You can:
-1. Follow the next step in your current plan
-2. Create a new plan if the current one isn't working
-3. Explore your surroundings if you need more information
-
-Output your decision as an action command:
-- collectBlock <blockType> <count>
-- moveToPosition <x> <y> <z>
-- craftItem <itemName> <count>
-- lookAround
-- attackEntity <entityName>
-- placeBlock <blockType> <x> <y> <z>
-- sleep
-- wakeUp
-- dropItem <itemName> <count>
-- generateAndExecuteCode <task description string>
-
-Output ONLY the single action command to execute next. Prefer specific actions over code generation unless necessary.
-`;
-
-    // If there's a plan, suggest the next step but let the LLM confirm/override
-    let suggestedNext = state.currentPlan && state.currentPlan.length > 0 ? state.currentPlan[0] : '';
-    if (suggestedNext) {
-        prompt += `\nSuggested next step from plan: ${suggestedNext}`;
+        console.log("[Planner] Generated Plan:", planSteps);
+        if (planSteps.length === 0) {
+            console.warn("[Planner] LLM generated an empty plan. Defaulting to askForHelp.");
+            return ['askForHelp I generated an empty plan. What should I do next?'];
+        }
+        return planSteps;
+    } catch (error) {
+        console.error('[Planner] Error creating plan:', error);
+        // Fallback plan on error
+        return ['askForHelp I encountered an error while planning. What should I do?'];
     }
-
-    const response = await this.model.invoke([
-      { role: 'system', content: prompt }
-    ]);
-    
-    return response.content.toString().trim();
   }
+
+  // REMOVED decideNextAction method
 }

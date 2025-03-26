@@ -86,8 +86,9 @@ import { MemoryManager } from './agent/memory';
 // Import actions from the new index file
 import { actions } from './agent/actions/index';
 import { State } from './agent/types';
-import { Critic } from './agent/critic'; // Import Critic
-import { ThinkManager } from './agent/think'; // Import ThinkManager
+// REMOVE: import { Critic } from './agent/critic';
+import { ThinkManager } from './agent/think'; // Keep this
+import { ObserveManager } from './agent/observe'; // Keep this
 
 // Define the LangGraph state object structure
 // Note: We are using our existing State interface. If more complex message passing is needed later,
@@ -109,9 +110,9 @@ const botConfig = {
 // Create bot
 const bot = mineflayer.createBot(botConfig);
 const memoryManager = new MemoryManager(undefined, 10, process.env.OPENAI_API_KEY);
-const planner = new Planner(process.env.OPENAI_API_KEY || '');
-const critic = new Critic(); // Instantiate Critic
-let thinkManager: ThinkManager | null = null; // Will be instantiated when needed
+// REMOVE: const planner = new Planner(process.env.OPENAI_API_KEY || ''); // Planner is now inside ThinkManager
+// REMOVE: const critic = new Critic();
+const thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || ''); // Instantiate ThinkManager directly
 
 // Define initial state
 const state: State = {
@@ -247,113 +248,85 @@ async function observeNode(currentState: GraphState): Promise<Partial<GraphState
 }
 
 
-// Import the ThinkManager
-import { ThinkManager } from './agent/think';
-
-// Think Node: Decides the next action or if replanning is needed.
+// Think Node: Uses the ThinkManager to decide the next action or replan.
 async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>> {
   console.log("--- Running Think Node ---");
-  
-  // Use the critic to evaluate if we need to replan
-  const evaluation = critic.evaluate(currentState);
-  
-  if (evaluation.needsReplanning) {
-    console.log(`Critic suggests replanning: ${evaluation.reason}`);
-    
-    // Create ThinkManager instance if not already created
-    if (!thinkManager) {
-      thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || '');
-    }
-    
-    // Use the ThinkManager to handle the thinking process
-    return await thinkManager.think(currentState);
-  }
-  
-  // If no replanning needed according to critic, continue with existing plan
-  if (currentState.currentPlan && currentState.currentPlan.length > 0) {
-    const nextAction = currentState.currentPlan[0];
-    console.log(`Continuing with existing plan. Next action: ${nextAction}`);
-    return { lastAction: nextAction };
-  } else {
-    // No plan but critic didn't suggest replanning - fallback
-    console.log("No current plan but critic didn't suggest replanning. Creating new plan anyway.");
-    
-    // Create ThinkManager instance if not already created
-    if (!thinkManager) {
-      thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || '');
-    }
-    
-    // Use the ThinkManager to create a new plan
-    return await thinkManager.think(currentState);
+  // Delegate all thinking logic to the ThinkManager
+  try {
+      // ThinkManager now returns the necessary state updates (lastAction, potentially currentPlan)
+      return await thinkManager.think(currentState);
+  } catch (error) {
+      console.error('[ThinkNode] Error during thinking process:', error);
+      // Fallback action if think manager fails unexpectedly
+      return { lastAction: 'askForHelp An internal error occurred during thinking.' };
   }
 }
 
 
 // Act Node: Executes the action decided by the 'think' node.
+// (Keep the existing actNode implementation, ensuring it correctly updates
+// the plan state after successful execution)
 async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
   console.log("--- Running Act Node ---");
-  const actionToPerform = currentState.lastAction; // Get action from state
+  const actionToPerform = currentState.lastAction;
 
   if (!actionToPerform) {
-    console.log("No action decided. Skipping act node.");
+    console.log("[ActNode] No action decided. Skipping act node.");
     return { lastActionResult: "No action to perform" };
   }
 
-  // Parse action and arguments, removing potential quotes around args
-  const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || []; // Split by space, respecting quotes
+  const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
   const actionName = parts[0];
-  const args = parts.slice(1).map(arg => arg.replace(/^"|"$/g, '')); // Remove surrounding quotes
-  // Execute action
+  const args = parts.slice(1).map(arg => arg.replace(/^"|"$/g, ''));
+
+  let result: string;
+  let executionSuccess = false; // Track if execution itself succeeded
+
   if (actionName && actions[actionName]) {
     try {
-      console.log(`Executing action: ${actionName} with args: ${args.join(', ')}`);
-      // *** PASS currentState to execute ***
-      const result = await actions[actionName!].execute(bot, args, currentState);
-
-      // Update memory with action result
-      await memoryManager.addToShortTerm(`Action: ${actionToPerform} - Result: ${result}`); // Add await
-
-      let updatedPlan = currentState.currentPlan;
-      // Clean the current plan step for comparison
-      const currentPlanStepClean = currentState.currentPlan && currentState.currentPlan.length > 0
-        ? currentState.currentPlan[0].replace(/^\d+\.\s*/, '').trim()
-        : null;
-
-      // If the executed action matches the *cleaned* first step of the plan, remove it
-      if (currentPlanStepClean && actionToPerform === currentPlanStepClean) {
-        console.log(`Completed plan step: ${currentState.currentPlan![0]}`); // Log original step
-        updatedPlan = currentState.currentPlan!.slice(1);
-      } else if (currentPlanStepClean) {
-        console.log(`Executed action "${actionToPerform}" does not match current plan step "${currentState.currentPlan![0]}". Plan may need revision.`);
-        // The 'think' node/critic should handle replanning based on failure or deviation.
-      }
-
-      // Return the result and potentially updated plan
-      return {
-        lastActionResult: result,
-        currentPlan: updatedPlan,
-        memory: memoryManager.fullMemory // Update memory in state
-      };
+      console.log(`[ActNode] Executing action: ${actionName} with args: ${args.join(', ')}`);
+      result = await actions[actionName].execute(bot, args, currentState);
+      executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error'); // Basic success check
+      console.log(`[ActNode] Action Result: ${result}`);
     } catch (error: any) {
-      const errorMsg = `Failed to execute ${actionName}: ${error.message || error}`;
-      console.error(`[ActNode] ${errorMsg}`);
-      await memoryManager.addToShortTerm(errorMsg); // Add await
-      // Return failure result and updated memory
-      return {
-        lastActionResult: errorMsg,
-        memory: memoryManager.fullMemory
-      };
+      result = `Failed to execute ${actionName}: ${error.message || error}`;
+      console.error(`[ActNode] ${result}`);
+      executionSuccess = false;
     }
   } else {
-    const errorMsg = `Unknown action: ${actionName}`;
-    console.error(`[ActNode] ${errorMsg}`);
-    await memoryManager.addToShortTerm(errorMsg); // Add await
-    // Return unknown action result and updated memory
-    return {
-      lastActionResult: errorMsg,
-      memory: memoryManager.fullMemory
-    };
+    result = `Unknown action: ${actionName}`;
+    console.error(`[ActNode] ${result}`);
+    executionSuccess = false;
   }
+
+  // Update memory (always update with the result)
+  await memoryManager.addToShortTerm(`Action: ${actionToPerform} -> Result: ${result}`);
+
+  let updatedPlan = currentState.currentPlan;
+
+  // Advance the plan ONLY if the execution was successful AND it matched the plan
+  if (executionSuccess && currentState.currentPlan && currentState.currentPlan.length > 0) {
+    // Clean the current plan step for comparison (remove numbering, trim)
+    const currentPlanStepClean = currentState.currentPlan[0].replace(/^\d+\.\s*/, '').trim();
+
+    if (actionToPerform === currentPlanStepClean) {
+      console.log(`[ActNode] Completed plan step: ${currentState.currentPlan[0]}`);
+      updatedPlan = currentState.currentPlan.slice(1);
+    } else {
+      console.warn(`[ActNode] Executed action "${actionToPerform}" succeeded but did not match planned step "${currentState.currentPlan[0]}". Plan might be outdated.`);
+      // Let ThinkManager decide if replanning is needed based on this state.
+    }
+  } else if (!executionSuccess && currentState.currentPlan && currentState.currentPlan.length > 0) {
+      console.log(`[ActNode] Action "${actionToPerform}" failed. Plan step "${currentState.currentPlan[0]}" not completed.`);
+      // ThinkManager will handle replanning based on the failure result.
+  }
+
+
+  return {
+    lastActionResult: result,
+    currentPlan: updatedPlan, // Return potentially updated plan
+    memory: memoryManager.fullMemory // Return updated memory state
+  };
 }
 
 
