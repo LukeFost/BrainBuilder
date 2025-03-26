@@ -109,7 +109,8 @@ bot.once('spawn', async () => {
   skillRepository = new SkillRepository('skills_library.json');
   await skillRepository.loadSkills(); // Load skills from the file
 
-  planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository); // Pass API key and skills
+  // Pass memoryManager to Planner constructor
+  planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository, memoryManager);
   thinkManager = new ThinkManager(planner); // Pass the planner instance
   // Pass mcDataInstance AND memoryManager to ObserveManager constructor
   observeManager = new ObserveManager(bot, mcDataInstance, memoryManager);

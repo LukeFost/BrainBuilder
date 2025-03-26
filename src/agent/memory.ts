@@ -1,4 +1,4 @@
-import { StructuredMemory, ShortTermMemory, LongTermMemory, KnowledgeBase, RecentActionEntry } from './types';
+import { StructuredMemory, ShortTermMemory, LongTermMemory, KnowledgeBase, RecentActionEntry, SpatialMemoryEntry } from './types'; // Import SpatialMemoryEntry
 import { ChatOpenAI } from '@langchain/openai';
 import * as fs from 'fs/promises';
 import * as path from 'path';

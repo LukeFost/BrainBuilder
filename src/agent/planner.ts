@@ -7,14 +7,16 @@ import { actions } from './actions/index';
 export class Planner {
   private model: ChatOpenAI;
   private skillRepository: SkillRepository; // Added
+  private memoryManager: MemoryManager; // Added
 
-  constructor(apiKey: string, skillRepository: SkillRepository) { // Updated constructor
+  constructor(apiKey: string, skillRepository: SkillRepository, memoryManager: MemoryManager) { // Updated constructor
     this.model = new ChatOpenAI({
       openAIApiKey: apiKey,
       modelName: 'gpt-4o-mini', // Ensure this is the desired model
       temperature: 0.1, // Lower temperature for more deterministic plans
     });
     this.skillRepository = skillRepository; // Store skill repository
+    this.memoryManager = memoryManager; // Store memory manager
   }
 
   async createPlan(state: State, goal: string): Promise<string[]> {
@@ -33,8 +35,8 @@ Recent Actions (last 5): ${state.memory.shortTerm.recentActions
             // Add type annotation here:
             .map((entry: RecentActionEntry) => `(${new Date(entry.timestamp).toLocaleTimeString()}) ${entry.action} -> ${entry.result.substring(0, 50)}...`) // Format them
             .join(' | ') || 'None'}
-Long-term Memory Summary: ${state.memory.longTerm || 'None available'} // Getter now provides summary string
-Spatial Memory Summary: ${state.memory.spatialMemorySummary || 'None available'} // Add spatial summary
+Long-term Memory Summary: ${this.memoryManager.longTerm || 'None available'} // Use memoryManager getter
+Spatial Memory Summary: ${this.memoryManager.spatialMemorySummary || 'None available'} // Use memoryManager getter
 Previous Plan Steps (if any): ${state.currentPlan?.slice(0, 5).join(' -> ') ?? 'None'}
 Last Action: ${state.lastAction || 'None'}
 Last Action Result: ${state.lastActionResult || 'None'}
