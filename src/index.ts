@@ -17,6 +17,7 @@ import { State, Memory, Inventory, Surroundings } from './agent/types';
 import { ThinkManager } from './agent/think';
 import { ObserveManager } from './agent/observe';
 import { ValidateManager } from './agent/validate';
+import { ResultAnalysisManager } from './agent/resultAnalysis';
 
 // Load environment variables
 dotenv.config();
@@ -54,6 +55,7 @@ let planner: Planner;
 let thinkManager: ThinkManager;
 let observeManager: ObserveManager | null = null; // Initialize lazily or here
 let validateManager: ValidateManager;
+let resultAnalysisManager: ResultAnalysisManager;
 
 // Define initial state structure (values will be populated)
 const initialState: State = {
@@ -110,6 +112,7 @@ bot.once('spawn', async () => {
   // Pass mcDataInstance to ObserveManager constructor
   observeManager = new ObserveManager(bot, mcDataInstance);
   validateManager = new ValidateManager();
+  resultAnalysisManager = new ResultAnalysisManager();
 
   if (pathfinderInitialized) {
     // Ensure observeManager is initialized before starting the loop
@@ -350,6 +353,26 @@ async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentS
   return { state: newState };
 }
 
+async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+  console.log("--- Running Result Analysis Node ---");
+  try {
+    // Pass the current state from the wrapper to the result analysis function
+    const analysisResult = await resultAnalysisManager.analyze(agentState.state);
+    // Merge the analysis result back into the state within the wrapper
+    const newState = { ...agentState.state, ...analysisResult };
+    return { state: newState };
+  } catch (error: unknown) {
+    console.error('[ResultAnalysisNode] Error during result analysis process:', error);
+    // Update the state within the wrapper on error
+    const newState = { 
+      ...agentState.state, 
+      lastAction: 'askForHelp',
+      lastActionResult: 'An internal error occurred during result analysis.'
+    };
+    return { state: newState };
+  }
+}
+
 
 // --- Build the Graph ---
 const workflow = new StateGraph<AgentState>({
@@ -374,6 +397,7 @@ workflow.addNode("observe", runObserveNodeWrapper);
 workflow.addNode("think", runThinkNodeWrapper);
 workflow.addNode("validate", runValidateNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
+workflow.addNode("resultAnalysis", runResultAnalysisNodeWrapper);
 
 // Define edges - use the correct type signatures with type assertions
 // First set the entry point
@@ -412,7 +436,11 @@ workflow.addEdge(
 // Validate always goes to act
 workflow.addEdge(["validate"] as any, "act" as any);
 
-workflow.addEdge(["act"] as any, "observe" as any); // Complete the loop
+// Act now goes to result analysis instead of directly to observe
+workflow.addEdge(["act"] as any, "resultAnalysis" as any);
+
+// Result analysis goes to observe to complete the loop
+workflow.addEdge(["resultAnalysis"] as any, "observe" as any);
 
 // Compile the graph
 const app = workflow.compile();
@@ -461,6 +489,10 @@ async function startAgentLoop() {
             console.log("Shared State Updated After Act. Result:", currentAgentState.lastActionResult);
             // Optional delay after acting
             await new Promise(resolve => setTimeout(resolve, 1000));
+        } else if (event.resultAnalysis) {
+            console.log("\n=== Cycle End: RESULT ANALYSIS ===");
+            currentAgentState = event.resultAnalysis.state;
+            console.log("Shared State Updated After Result Analysis");
         } else {
              // This might happen for intermediate steps or if __end__ is reached
              console.log("Graph stream event without specific node output:", event);
