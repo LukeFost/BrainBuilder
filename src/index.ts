@@ -373,18 +373,46 @@ async function runResultAnalysisNodeWrapper(currentState: State): Promise<Partia
 // --- Build the Graph ---
 // Use State directly as the graph's state type
 const workflow = new StateGraph<State>({
-  // Define channels based on how State should be updated.
-  // A simple approach: manage the entire State object.
-  // Nodes return Partial<State>, and this reducer merges the updates.
+  // Define a channel for each property in the State interface.
+  // Nodes return Partial<State>, and these reducers merge the updates.
   channels: {
-    __root__: { // Use __root__ channel to manage the whole state object
-        // Reducer merges partial updates into the existing state
-        value: (left: State, right: Partial<State>) => ({ ...left, ...right }),
-        // Default provides the initial State object
-        default: (): State => currentAgentState
-    }
-    // If specific properties need different update logic (e.g., lists),
-    // define separate channels for them instead of using __root__.
+    memory: {
+      // Reducer: Takes the previous value (left) and the new update (right).
+      // If 'right' (the update) is provided, use it; otherwise, keep 'left'.
+      value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left,
+      // Default value for this channel when the graph starts.
+      default: (): StructuredMemory => currentAgentState.memory
+    },
+    inventory: {
+      value: (left: Inventory, right?: Inventory) => right ?? left,
+      default: (): Inventory => currentAgentState.inventory
+    },
+    surroundings: {
+      value: (left: Surroundings, right?: Surroundings) => right ?? left,
+      default: (): Surroundings => currentAgentState.surroundings
+    },
+    currentGoal: {
+      value: (left?: string, right?: string) => right ?? left,
+      default: (): string | undefined => currentAgentState.currentGoal
+    },
+    currentPlan: {
+      value: (left?: string[], right?: string[]) => right ?? left,
+      default: (): string[] | undefined => currentAgentState.currentPlan
+    },
+    lastAction: {
+      value: (left?: string, right?: string) => right ?? left,
+      default: (): string | undefined => currentAgentState.lastAction
+    },
+    lastActionResult: {
+      value: (left?: string, right?: string) => right ?? left,
+      default: (): string | undefined => currentAgentState.lastActionResult
+    },
+    // Include 'next' if it's part of the State interface and used by LangGraph,
+    // otherwise, it can be omitted if not explicitly defined in State.
+    // next: {
+    //   value: (left?: string, right?: string) => right ?? left,
+    //   default: (): string | undefined => currentAgentState.next
+    // }
   }
 });
 
