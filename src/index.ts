@@ -337,7 +337,8 @@ workflow.addNode("think", runThinkNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 
 // Define edges
-workflow.setEntryPoint("observe"); // Start with observation
+workflow.setEntryPoint("__start__"); // Start with observation
+workflow.addEdge("__start__", "observe");
 // These edges are now defined correctly with __start__ as the entry point
 
 // Compile the graph
