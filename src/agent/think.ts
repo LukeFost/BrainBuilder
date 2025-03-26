@@ -21,6 +21,21 @@ export class ThinkManager {
 
   async think(currentState: State): Promise<Partial<State>> {
     console.log("--- Running Think Manager ---");
+
+    // --- Add executed action to history (if available) ---
+    if (currentState.lastAction && currentState.lastActionResult) {
+        this.actionHistory.push({
+            action: currentState.lastAction,
+            result: currentState.lastActionResult,
+            timestamp: Date.now()
+        });
+        // Keep history size limited
+        if (this.actionHistory.length > this.maxHistorySize) {
+            this.actionHistory.shift(); // Remove oldest entry
+        }
+    }
+    // --- End history update ---
+
     
     // Check if goal is already completed before doing anything else
     if (this.isGoalCompleted(currentState)) {
