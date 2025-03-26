@@ -18,12 +18,14 @@ export const collectBlockAction: Action = {
     let actualBlockTypeForCheck = blockType;
     // Use the passed mcData instance
     // Handle common block name variations for the check
-    if (blockType === 'wood' || blockType === 'log') {
-        const logTypesCheck = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
-        for (const logType of logTypesCheck) {
-            if (mcData.blocksByName[logType]) {
-                actualBlockTypeForCheck = logType; // Use the first specific log type found for checking inventory
-                break;
+    try {
+        if (blockType === 'wood' || blockType === 'log') {
+            const logTypesCheck = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log'];
+            for (const logType of logTypesCheck) {
+                if (mcData.blocksByName[logType]) {
+                    actualBlockTypeForCheck = logType; // Use the first specific log type found for checking inventory
+                    break;
+                }
             }
         }
     } catch (e) { /* ignore mcData errors during check */ }
