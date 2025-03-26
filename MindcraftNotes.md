@@ -1,221 +1,308 @@
-# How Mindcraft Agents Join a Player's LAN World
+# Mindcraft Agent Improvements Summary
 
-To connect an AI agent to a player's Minecraft LAN world, Mindcraft uses the Mineflayer library, which creates a Minecraft client that can join servers programmatically. This process involves several key components working together:
+## Issues Addressed
 
-## Connection Configuration
+### 1. Infinite Loop in "Waiting for Instructions" State
+The agent was getting stuck in a loop after completing its goal, repeatedly asking for help without making progress. This was causing the LangGraph to hit its recursion limit of 300.
 
-The core settings for connecting to a Minecraft world are defined in `settings.js`:
+### 2. Markdown Code Fence Errors
+The agent was treating markdown code fences (```) as commands, leading to "Unknown action" errors.
 
-```javascript
-"minecraft_version": "1.20.4", // supports up to 1.21.1
-"host": "127.0.0.1", // or "localhost", "your.ip.address.here"
-"port": process.env.MINECRAFT_PORT || 55916,
-"auth": "offline", // or "microsoft"
+### 3. Error Recovery and Adaptation
+The agent lacked robust error handling and adaptation mechanisms when actions failed.
+
+## Solutions Implemented
+
+### 1. Improved State Management
+- Added a proper "Waiting for instructions" state in the ThinkManager
+- Implemented detection for repeated help requests
+- Added random exploration behavior to break out of help request loops
+- Added an explicit END condition to the LangGraph to terminate properly
+
+```typescript
+// Special handling for "Waiting for instructions" state
+if (currentState.currentGoal === 'Waiting for instructions') {
+  // If we've already asked for help multiple times, do something more interesting
+  const recentActions = currentState.memory.shortTerm.slice(-10);
+  const askForHelpCount = recentActions.filter(action => 
+    action.includes('askForHelp') && 
+    (action.includes('What would you like me to do next?') || 
+     action.includes('goal has been achieved'))
+  ).length;
+  
+  if (askForHelpCount >= 2) {
+    // Do something more interesting - explore the world
+    console.log("[ThinkManager] Breaking help request loop with exploration");
+    
+    // Generate a random position to explore
+    const currentPos = currentState.surroundings.position;
+    const randomOffset = Math.floor(Math.random() * 10) - 5; // -5 to +5
+    const newX = Math.floor(currentPos.x) + randomOffset;
+    const newZ = Math.floor(currentPos.z) + randomOffset;
+    const newY = Math.floor(currentPos.y); // Keep same Y level for safety
+    
+    return {
+      lastAction: `moveToPosition ${newX} ${newY} ${newZ}`,
+      currentPlan: [`moveToPosition ${newX} ${newY} ${newZ}`, "lookAround"],
+      next: "explore" // Add a 'next' property to help with graph control flow
+    };
+  } else {
+    // Ask for help, but only once or twice
+    return {
+      lastAction: "askForHelp What would you like me to do next?",
+      currentPlan: ["askForHelp What would you like me to do next?"],
+      next: "wait" // Add a 'next' property to help with graph control flow
+    };
+  }
+}
 ```
 
-These settings specify:
-- The Minecraft version the bot should use
-- The host address (localhost for LAN worlds)
-- The port number to connect to
-- The authentication method (offline for local play)
+### 2. Added Validation Layer
+Created a validation node in the agent loop to:
+- Strip markdown formatting from actions
+- Verify actions exist before execution
+- Convert raw plans into executable commands
 
-## The Connection Process
+The ValidateManager class handles this process:
 
-When you start Mindcraft with `node main.js`, it follows these steps:
+```typescript
+async validate(currentState: State): Promise<Partial<State>> {
+  console.log("--- Running Validate Node ---");
+  
+  if (!currentState.lastAction) {
+    console.log("[ValidateManager] No action to validate");
+    return { lastActionResult: "No action to validate" };
+  }
 
-1. **Initialize Bot Client**: In `src/utils/mcdata.js`, the `initBot` function creates a Mineflayer bot instance:
+  // Strip markdown formatting
+  let cleanAction = this.stripMarkdown(currentState.lastAction);
+  
+  // Parse the action and arguments
+  const parts = cleanAction.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+  const actionName = parts[0];
+  
+  // Check if the action exists
+  if (!actionName || !actions[actionName]) {
+    console.error(`[ValidateManager] Invalid action: ${actionName}`);
+    return { 
+      lastAction: "askForHelp",
+      lastActionResult: `Unknown action: ${actionName}. Please try a different approach.`
+    };
+  }
+  
+  // If action is valid, update the lastAction with the cleaned version
+  console.log(`[ValidateManager] Validated action: ${cleanAction}`);
+  return { lastAction: cleanAction };
+}
+```
 
-   ```javascript
-   export function initBot(username) {
-       let bot = createBot({
-           username: username,
-           host: settings.host,
-           port: settings.port,
-           auth: settings.auth,
-           version: mc_version,
-       });
-       // Load plugins
-       bot.loadPlugin(pathfinder);
-       bot.loadPlugin(pvp);
-       bot.loadPlugin(collectblock);
-       bot.loadPlugin(autoEat);
-       bot.loadPlugin(armorManager);
-       bot.once('resourcePack', () => {
-           bot.acceptResourcePack();
-       });
-       return bot;
-   }
-   ```
+### 3. Added Result Analysis for Error Recovery
+Created a result analysis node to:
+- Detect repeated failures
+- Adapt plans when actions consistently fail
+- Skip problematic actions and continue with the plan
 
-2. **Start Spawn Process**: In `src/agent/agent.js`, the `start` method sets up event listeners for the bot's login and spawn events:
+The ResultAnalysisManager implements sophisticated error recovery:
 
-   ```javascript
-   this.bot.on('login', () => {
-       console.log(this.name, 'logged in!');
-       serverProxy.login();
-       // Set skin for profile
-       if (this.prompter.profile.skin)
-           this.bot.chat(`/skin set URL ${this.prompter.profile.skin.model} ${this.prompter.profile.skin.path}`);
-       else
-           this.bot.chat(`/skin clear`);
-   });
+```typescript
+async analyze(currentState: State): Promise<Partial<State>> {
+  console.log("--- Running Result Analysis ---");
+  
+  if (!currentState.lastAction || !currentState.lastActionResult) {
+    console.log("[ResultAnalysisManager] No action or result to analyze");
+    return currentState;
+  }
 
-   const spawnTimeout = setTimeout(() => {
-       process.exit(0);
-   }, 30000);
-   this.bot.once('spawn', async () => {
-       clearTimeout(spawnTimeout);
-       // Initialize components after spawn
-       // ...
-   });
-   ```
+  const action = currentState.lastAction;
+  const result = currentState.lastActionResult;
+  
+  // Store the last result for comparison
+  this.lastActionResult = result;
+  
+  // Check if the action succeeded
+  const isSuccess = this.isActionSuccessful(action, result);
+  
+  if (!isSuccess) {
+    // Track failure patterns
+    const failureKey = this.getFailureKey(action, result);
+    this.failurePatterns[failureKey] = (this.failurePatterns[failureKey] || 0) + 1;
+    
+    console.log(`[ResultAnalysisManager] Action "${action}" failed. Pattern "${failureKey}" count: ${this.failurePatterns[failureKey]}`);
+    
+    // If we've seen this failure too many times, adapt the plan
+    if (this.failurePatterns[failureKey] >= this.maxFailureCount) {
+      console.log(`[ResultAnalysisManager] Detected repeated failure pattern "${failureKey}". Adapting plan.`);
+      return this.adaptPlan(currentState, failureKey);
+    }
+  } else {
+    // Reset failure patterns for successful actions
+    const actionType = action.split(' ')[0];
+    Object.keys(this.failurePatterns).forEach(key => {
+      if (key.startsWith(actionType)) {
+        delete this.failurePatterns[key];
+      }
+    });
+  }
+  
+  return currentState;
+}
+```
 
-## How Players Open Their LAN World
+### 4. Updated Graph Structure
+Modified the LangGraph structure to include the new nodes and proper conditional edges:
 
-For the bot to join, the player needs to:
+```
+observe → think → [conditional branch] → validate → act → resultAnalysis → observe (loop)
+                 ↘ END (if waiting for instructions)
+```
 
-1. Open their single-player world to LAN by pressing ESC → "Open to LAN"
-2. Choose game mode and options
-3. Click "Start LAN World"
-4. Note the port number shown in chat (e.g., "Local game hosted on port 55916")
-5. Ensure this port matches the one in `settings.js`
+The graph now includes validation and result analysis steps, making it more robust:
 
-## Technical Implementation Details
+```typescript
+// Add the validate node
+workflow.addNode("validate", runValidateNodeWrapper);
+// Add the result analysis node
+workflow.addNode("resultAnalysis", runResultAnalysisNodeWrapper);
 
-1. **Multiple Bot Support**: The system can spawn multiple bots through the `AgentProcess` class in `src/process/agent_process.js`, which manages each bot as a separate Node.js process.
+// Update the edges
+workflow.setEntryPoint("observe" as any);
+workflow.addEdge(["observe"] as any, "think" as any);
 
-2. **Docker Support**: For those using the Docker container, the host must be set to `host.docker.internal` instead of `localhost`:
+// Think conditional branches
+workflow.addEdge(
+  ["think"] as any, 
+  END as any, 
+  (agentState: AgentState) => {
+    return agentState.state.currentGoal === "Waiting for instructions" && 
+           agentState.state.lastAction?.includes("askForHelp") &&
+           !agentState.state.lastActionResult?.includes("New goal");
+  }
+);
 
-   ```javascript
-   "host": "host.docker.internal", // instead of "localhost"
-   ```
+workflow.addEdge(
+  ["think"] as any, 
+  "validate" as any, 
+  (agentState: AgentState) => {
+    return !(agentState.state.currentGoal === "Waiting for instructions" && 
+             agentState.state.lastAction?.includes("askForHelp") &&
+             !agentState.state.lastActionResult?.includes("New goal"));
+  }
+);
 
-3. **ViaProxy for Version Compatibility**: If using an unsupported Minecraft version, the system includes a ViaProxy service:
+// Validate always goes to act
+workflow.addEdge(["validate"] as any, "act" as any);
 
-   ```yaml
-   viaproxy: #use this service to connect to an unsupported minecraft server versions
-     image: ghcr.io/viaversion/viaproxy:latest
-     volumes:
-       - ./services/viaproxy:/app/run
-     ports:
-       - "25568:25568"
-     profiles:
-       - viaproxy
-   ```
+// Act now goes to result analysis instead of directly to observe
+workflow.addEdge(["act"] as any, "resultAnalysis" as any);
 
-4. **Viewer Functionality**: If enabled, the system shows a first-person view of what the bot sees through a web interface:
+// Result analysis goes to observe to complete the loop
+workflow.addEdge(["resultAnalysis"] as any, "observe" as any);
+```
 
-   ```javascript
-   export function addViewer(bot, count_id) {
-       if (settings.show_bot_views)
-           mineflayerViewer(bot, { port: 3000+count_id, firstPerson: true, });
-   }
-   ```
+## Future Improvements
 
-## Common Connection Issues
+### 1. Natural Language Command Processing
+Add a natural language command processor to handle more conversational inputs:
+- Convert natural language to structured commands
+- Allow more flexible interaction with the agent
 
-The FAQ document addresses several common connection problems:
+### 2. Robust Goal System
+Implement a more structured goal system:
+- Support complex goals and subgoals
+- Track goal completion more accurately
+- Allow for goal prioritization
 
-- `Error: connect ECONNREFUSED`: Indicates that Minecraft refused the connection, usually because:
-  - The world isn't opened to LAN
-  - The LAN port doesn't match what's in settings.js
-  - The Minecraft version is incorrect
+### 3. Idle Behaviors
+Add more interesting behaviors when the agent is waiting for instructions:
+- Explore surroundings
+- Comment on environment
+- Perform useful tasks autonomously
 
-- Version compatibility issues can be handled using patches or the ViaProxy service
+### 4. Improved Error Recovery
+Enhance the error recovery mechanisms:
+- More sophisticated failure pattern detection
+- Better adaptation strategies for different failure types
+- Learning from past failures to avoid repeating them
 
-The system is designed to automatically retry connections and has timeout mechanisms to prevent hanging indefinitely if a connection fails.
+## Technical Details
 
+### Key Files Modified
 
-I'll explain how the Mindcraft project handles AI agent coding functionality. This is a fascinating system that allows AI agents to write and execute code directly within Minecraft.
+1. `src/index.ts` - Updated graph structure and added new nodes
+2. `src/agent/think.ts` - Improved goal completion detection and waiting state handling
+3. `src/agent/validate.ts` - Added validation logic for commands
+4. `src/agent/resultAnalysis.ts` - Added result analysis and error recovery
 
-## Core Components for AI Coding
+### Graph Structure
 
-The system involves several key components working together:
+The agent now follows this flow:
+1. **Observe** - Gather information about the environment
+2. **Think** - Decide what to do next
+3. **Validate** - Ensure the action is valid
+4. **Act** - Execute the action
+5. **Result Analysis** - Analyze the result and adapt if needed
+6. Back to **Observe**
 
-1. **The Coder Class** (`src/agent/coder.js`): This is the central component that manages code generation, evaluation, and execution.
+The graph can also terminate when the agent is waiting for instructions and has already asked for help.
 
-2. **Prompt System** (`src/models/prompter.js`): This provides the LLM with context about what code to write.
+## Implementation Details
 
-3. **Language Model Integration**: Various LLM APIs (OpenAI, Claude, etc.) generate the actual code.
+### Validation Logic
+The validation node strips markdown formatting from actions, ensuring that code blocks don't cause errors:
 
-4. **Code Execution Environment**: A sandboxed environment to safely run the generated JavaScript.
+```typescript
+private stripMarkdown(action: string): string {
+  // Remove code block markers
+  let cleaned = action.replace(/```[a-z]*\n/g, '').replace(/```/g, '');
+  
+  // Remove leading numbers and dots (from numbered lists)
+  cleaned = cleaned.replace(/^\d+\.\s*/, '');
+  
+  // Trim whitespace
+  cleaned = cleaned.trim();
+  
+  return cleaned;
+}
+```
 
-## The Code Generation Process
+### Error Recovery Strategies
+The result analysis node implements different strategies based on the type of failure:
 
-The flow works like this:
+1. **Markdown Errors**: Clean up the action and retry
+2. **Insufficient Resources**: Try to collect the needed resources
+3. **Not Found/Too Far**: Look around and try a different location
+4. **Unknown Actions**: Skip and move to the next step
 
-1. **Request Initiation**: When a player asks the bot to perform a complex task using `!newAction`, it triggers the code generation process.
+For example, handling resource issues:
 
-2. **Context Building**: The system gathers relevant context including:
-   - The conversation history
-   - Available programming functions (skills library)
-   - Examples of previously successful code
+```typescript
+case 'insufficient_resources':
+  // For resource issues, try to collect the needed resources
+  console.log(`[ResultAnalysisManager] Adapting plan for insufficient resources in ${actionType}`);
+  // Try to extract what resource is needed from the result
+  const resourceMatch = state.lastActionResult?.match(/need (\d+) ([a-z_]+)/i);
+  if (resourceMatch) {
+    const count = resourceMatch[1];
+    const resource = resourceMatch[2];
+    
+    // Add resource collection to the beginning of the plan
+    const newPlan = [`collectBlock ${resource} ${count}`, ...currentPlan];
+    return {
+      currentPlan: newPlan,
+      lastAction: `collectBlock ${resource} ${count}`,
+      lastActionResult: `Adapting plan to collect needed resource: ${count} ${resource}`
+    };
+  }
+  break;
+```
 
-3. **LLM Query**: The system sends this context to an LLM with a prompt asking it to generate JavaScript code.
+## Results
 
-4. **Code Evaluation**: The generated code goes through several checks:
-   - Linting via ESLint to catch syntax errors
-   - Security filtering to prevent malicious code
+These improvements have made the agent more robust and responsive:
 
-5. **Code Execution**: If the code passes checks, it's executed in a sandboxed JavaScript environment.
+1. The agent no longer gets stuck in infinite loops
+2. It can handle markdown code fences and other formatting issues
+3. It can recover from errors and adapt its plans
+4. It provides more meaningful feedback when things go wrong
 
-## Security Considerations
-
-The system is designed with safety in mind:
-
-1. **Sandboxing**: Code runs in a compartmentalized environment with limited access.
-   
-2. **Limited API Access**: The code only has access to specific approved modules and functions:
-   ```javascript
-   const compartment = makeCompartment({
-     skills,
-     log: skills.log,
-     world,
-     Vec3,
-   });
-   ```
-
-3. **Explicit Warning**: The documentation warns users not to use this on public servers due to potential risks.
-
-## Code Example Flow
-
-Here's how the code flows through the system:
-
-1. Player types: "Build a 3x3 house with a door"
-
-2. The agent processes this as `!newAction("Build a 3x3 house with a door")`
-
-3. The LLM generates JavaScript like:
-   ```javascript
-   const pos = bot.entity.position;
-   for (let x = 0; x < 3; x++) {
-     for (let z = 0; z < 3; z++) {
-       for (let y = 0; y < 3; y++) {
-         // Skip door position
-         if (x === 1 && z === 0 && y === 0) continue;
-         await skills.placeBlock(bot, 'stone', pos.x + x, pos.y + y, pos.z + z);
-       }
-     }
-   }
-   // Place door
-   await skills.placeBlock(bot, 'oak_door', pos.x + 1, pos.y, pos.z);
-   ```
-
-4. This code is checked, sanitized, and executed by the bot in Minecraft.
-
-## Key Implementation Details
-
-The `generateCode` method in the `Coder` class is particularly important. It:
-
-1. Stops any current actions
-2. Sets `this.generating = true` to prevent interruptions
-3. Enters a loop to generate code (up to 5 attempts if needed)
-4. Checks for code blocks in the LLM response
-5. Stages and validates the code
-6. Executes the code and returns the result
-
-Error handling is built into each step, with the system able to retry with more context if needed.
-
-The security system uses the `makeCompartment` function from `src/agent/library/lockdown.js`, which creates a restricted JavaScript execution environment to prevent malicious code from accessing the broader system.
-
-Would you like me to dive deeper into any specific aspect of this system?
+The agent is now better equipped to handle complex tasks and recover from failures, making it more useful and reliable in the Minecraft environment.
