@@ -16,6 +16,7 @@ import { actions } from './agent/actions/index';
 import { State, Memory, Inventory, Surroundings } from './agent/types';
 import { ThinkManager } from './agent/think';
 import { ObserveManager } from './agent/observe';
+import { ValidateManager } from './agent/validate';
 
 // Load environment variables
 dotenv.config();
@@ -52,6 +53,7 @@ let skillRepository: SkillRepository;
 let planner: Planner;
 let thinkManager: ThinkManager;
 let observeManager: ObserveManager | null = null; // Initialize lazily or here
+let validateManager: ValidateManager;
 
 // Define initial state structure (values will be populated)
 const initialState: State = {
@@ -107,6 +109,7 @@ bot.once('spawn', async () => {
   thinkManager = new ThinkManager(planner); // Pass the planner instance
   // Pass mcDataInstance to ObserveManager constructor
   observeManager = new ObserveManager(bot, mcDataInstance);
+  validateManager = new ValidateManager();
 
   if (pathfinderInitialized) {
     // Ensure observeManager is initialized before starting the loop
@@ -251,6 +254,26 @@ async function runThinkNodeWrapper(agentState: AgentState): Promise<Partial<Agen
   }
 }
 
+async function runValidateNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+  console.log("--- Running Validate Node ---");
+  try {
+    // Pass the current state from the wrapper to the validate function
+    const validateResult = await validateManager.validate(agentState.state);
+    // Merge the validation result back into the state within the wrapper
+    const newState = { ...agentState.state, ...validateResult };
+    return { state: newState };
+  } catch (error: unknown) {
+    console.error('[ValidateNode] Error during validation process:', error);
+    // Update the state within the wrapper on error
+    const newState = { 
+      ...agentState.state, 
+      lastAction: 'askForHelp',
+      lastActionResult: 'An internal error occurred during validation.'
+    };
+    return { state: newState };
+  }
+}
+
 async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
   console.log("--- Running Act Node ---");
   const currentState = agentState.state; // Get state from wrapper
@@ -349,6 +372,7 @@ const workflow = new StateGraph<AgentState>({
 // Add nodes using the wrapper functions
 workflow.addNode("observe", runObserveNodeWrapper);
 workflow.addNode("think", runThinkNodeWrapper);
+workflow.addNode("validate", runValidateNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 
 // Define edges - use the correct type signatures with type assertions
@@ -373,17 +397,20 @@ workflow.addEdge(
   }
 );
 
-// Continue with act if the END condition isn't met
+// Continue with validate if the END condition isn't met
 workflow.addEdge(
   ["think"] as any, 
-  "act" as any, 
+  "validate" as any, 
   (agentState: AgentState) => {
-    // Continue to act if we're not ending
+    // Continue to validate if we're not ending
     return !(agentState.state.currentGoal === "Waiting for instructions" && 
              agentState.state.lastAction?.includes("askForHelp") &&
              !agentState.state.lastActionResult?.includes("New goal"));
   }
 );
+
+// Validate always goes to act
+workflow.addEdge(["validate"] as any, "act" as any);
 
 workflow.addEdge(["act"] as any, "observe" as any); // Complete the loop
 
