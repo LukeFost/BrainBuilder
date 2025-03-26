@@ -181,10 +181,11 @@ Available commands:
 - explore: Force exploration mode
     `);
   } else if (message === 'stop') {
-    bot.chat('Stopping current activity');
-    // Update shared state - potentially clear plan/action?
+    bot.chat('Stopping current activity and waiting for new goal.');
+    // Update shared state - clear plan/action AND set goal to waiting
     currentAgentState.currentPlan = undefined;
     currentAgentState.lastAction = undefined;
+    currentAgentState.currentGoal = "Waiting for instructions"; // Pause the agent loop
     currentAgentState.lastActionResult = 'Activity stopped by user.';
     // await memoryManager.addToShortTerm(`Player ${username} requested to stop current activity`);
     await memoryManager.addRecentAction(`Player command: stop`, `User ${username} requested stop`);

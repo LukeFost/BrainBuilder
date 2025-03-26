@@ -96,18 +96,43 @@ export const collectBlockAction: Action = {
         const goal = new PathfinderGoals.GoalGetToBlock(block.position.x, block.position.y, block.position.z);
 
         await bot.pathfinder.goto(goal);
-        console.log(`[Action:collectBlock] Reached block. Attempting to dig.`);
+        console.log(`[Action:collectBlock] Reached block. Checking tool and attempting to dig.`);
 
-        // Optional: Equip best tool
-        const bestTool = bot.pathfinder.bestHarvestTool(block);
-        if (bestTool) {
-          console.log(`[Action:collectBlock] Equipping best tool: ${bestTool.name}`);
-          await bot.equip(bestTool, 'hand');
+        // Check if the block requires a tool and if we have the right one
+        const harvestTools = mcData.blocks[block.type]?.harvestTools;
+        let bestTool = null;
+        if (harvestTools) {
+            bestTool = bot.pathfinder.bestHarvestTool(block);
+            if (!bestTool) {
+                // Block requires a tool, but we don't have one suitable
+                message = `Failed: Need a suitable tool (e.g., pickaxe for ${actualBlockType}) to collect this block, but none found in inventory.`;
+                console.error(`[Action:collectBlock] ${message}`);
+                break; // Stop collection attempts
+            }
+            // Check if the best tool found is actually listed in harvestTools (basic check)
+            if (!harvestTools[bestTool.type]) {
+                 message = `Failed: Found tool ${bestTool.name}, but it might not be effective for ${actualBlockType}. Need one of: ${Object.keys(harvestTools).map(id => mcData.items[parseInt(id)]?.name).join(', ')}.`;
+                 console.error(`[Action:collectBlock] ${message}`);
+                 break; // Stop collection attempts
+            }
+            console.log(`[Action:collectBlock] Equipping best tool: ${bestTool.name}`);
+            await bot.equip(bestTool, 'hand');
+        } else {
+            // Block doesn't require a specific tool (can be mined by hand)
+            console.log(`[Action:collectBlock] Block ${actualBlockType} can be collected by hand.`);
+            // Ensure hand is empty or holding something unimportant? Or just proceed.
         }
 
-        await bot.dig(block);
-        collectedCount++; // Increment count collected *in this action*
-        console.log(`[Action:collectBlock] Successfully collected one ${actualBlockType} (attempt ${i + 1}/${neededCount}). Total collected this run: ${collectedCount}.`);
+
+        try {
+            await bot.dig(block);
+            collectedCount++; // Increment count collected *in this action*
+            console.log(`[Action:collectBlock] Successfully collected one ${actualBlockType} (attempt ${i + 1}/${neededCount}). Total collected this run: ${collectedCount}.`);
+        } catch (digError: any) {
+            message = `Failed to dig ${actualBlockType}: ${digError.message || digError}`;
+            console.error(`[Action:collectBlock] ${message}`);
+            break; // Stop if digging fails
+        }
 
         // Small delay
         if (i < neededCount - 1) {

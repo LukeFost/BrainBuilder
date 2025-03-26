@@ -65,10 +65,11 @@ ${actionDescriptions}
 
 Planning Guidelines:
 1.  **Analyze State:** Carefully consider inventory, surroundings, health, hunger, time, memory, and the last action's result. Check inventory *before* planning to collect items you already have.
-2.  **Decompose Goal:** Break down the high-level goal into small, sequential, actionable steps using ONLY the available actions. If crafting is needed, plan to gather required ingredients *first*, based on known recipes. Check for necessary tools (e.g., pickaxe for stone) and plan to craft them if missing.
-3.  **Prerequisites:** Ensure prerequisites are met before attempting an action (e.g., have logs before crafting planks, have a crafting table nearby for complex crafts).
-4.  **Resource Gathering:** Prioritize gathering all necessary raw materials for a multi-step craft or build task *before* starting the crafting/building steps.
-5.  **Efficiency:** Choose the most direct sequence. Use \`moveToPosition\` only when necessary to reach resources, crafting stations, or targets. Avoid unnecessary movement.
+2.  **Decompose Goal:** Break down the high-level goal into small, sequential, actionable steps using ONLY the available actions.
+3.  **Tool Check & Crafting:** Before planning to `collectBlock` for materials like stone, coal_ore, iron_ore, etc., check if you have the *correct* tool (e.g., a pickaxe of the appropriate tier). If not, plan to craft the necessary tool *first*. Wood requires an axe (or fist), dirt/sand requires a shovel (or fist).
+4.  **Prerequisites:** Ensure prerequisites are met before attempting an action (e.g., have logs before crafting planks, have a crafting table nearby for complex crafts, have the correct tool equipped).
+5.  **Resource Gathering:** Prioritize gathering all necessary raw materials for a multi-step craft or build task *before* starting the crafting/building steps.
+6.  **Efficiency:** Choose the most direct sequence. Use `moveToPosition` only when necessary to reach resources, crafting stations, or targets. Avoid unnecessary movement.
 6.  **Error Handling:** If the 'Last Action Result' indicates a failure, the new plan MUST address the cause (e.g., collect missing items identified in the error, find a crafting table, choose a different location, use \`askForHelp\`). Avoid repeating the exact failed action immediately.
 7.  **Skill Usage:** Select the most appropriate action. Use \`generateAndExecuteCode\` sparingly for complex, multi-step procedures not covered by basic actions (e.g., building a specific structure shape).
 8.  **Stuck Detection:** If the same action fails multiple times (see Last Action Result) or progress isn't being made towards the goal despite several steps, use \`askForHelp\`.
