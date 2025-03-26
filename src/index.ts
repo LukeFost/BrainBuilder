@@ -33,12 +33,9 @@ const LOG_PREFIX = {
  */
 const getMcData = (version: string) => {
   try {
-    if (typeof mcDataModule === 'function') {
-      return mcDataModule(version);
-    } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
-      return mcDataModule.default(version);
-    }
-    return require('minecraft-data')(version);
+    // Use dynamic import to avoid TypeScript treating it as a type
+    const mcData = require('minecraft-data');
+    return mcData(version);
   } catch (error: any) {
     console.error(`${LOG_PREFIX.SYSTEM} Critical failure loading minecraft-data for version ${version}:`, error);
     throw new Error(`Unable to initialize minecraft-data for version ${version}: ${error.message}`);
@@ -131,14 +128,16 @@ bot.once('spawn', async () => {
   let pathfinderInitialized = false;
   try {
     bot.loadPlugin(pathfinder.pathfinder);
-    const mcDataInstance = mcData(bot.version); // Ensure mcData is loaded for pathfinder
-    const defaultMove = new pathfinder.Movements(bot, mcDataInstance); // Pass mcDataInstance
+    // Use require directly to avoid TypeScript treating mcDataModule as a type
+    const mcData = require('minecraft-data');
+    const mcDataInstance = mcData(bot.version);
+    const defaultMove = new pathfinder.Movements(bot, mcDataInstance);
     defaultMove.allowSprinting = true;
     defaultMove.canDig = true;
     bot.pathfinder.setMovements(defaultMove);
     console.log('Pathfinder initialized successfully.');
     pathfinderInitialized = true;
-  } catch (error: any) { // Explicitly type error
+  } catch (error: any) {
     console.error('CRITICAL: Error initializing pathfinder plugin:', error.message || error);
     console.error('Movement capabilities will be severely limited or non-functional.');
   }

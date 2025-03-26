@@ -1,15 +1,7 @@
 import * as mineflayer from 'mineflayer';
 import * as dotenv from 'dotenv';
-import * as mcDataModule from 'minecraft-data';
-// Handle both CommonJS and ES module versions of minecraft-data
-const mcData = (version: string) => {
-  if (typeof mcDataModule === 'function') {
-    return mcDataModule(version);
-  } else if (mcDataModule.default && typeof mcDataModule.default === 'function') {
-    return mcDataModule.default(version);
-  }
-  throw new Error('Unable to initialize minecraft-data properly');
-};
+// Import minecraft-data using require to avoid TypeScript treating it as a type
+const mcData = require('minecraft-data');
 import * as pathfinder from 'mineflayer-pathfinder';
 import { Client } from "@langchain/langgraph-sdk";
 import { BaseMessage } from "@langchain/core/messages"; // Although not used yet, good to have for potential future message passing
@@ -137,8 +129,8 @@ bot.once('spawn', async () => { // Add async here
   try {
     // Initialize pathfinder plugin
     bot.loadPlugin(pathfinder.pathfinder);
-    const mcDataInstance = mcData(bot.version as string);
-    const defaultMove = new pathfinder.Movements(bot);
+    const mcDataInstance = mcData(bot.version);
+    const defaultMove = new pathfinder.Movements(bot, mcDataInstance);
     // Configure movements (optional, customize as needed)
     defaultMove.allowSprinting = true;
     defaultMove.canDig = true; // Allow breaking blocks if necessary for pathing
