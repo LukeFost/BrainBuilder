@@ -456,9 +456,9 @@ workflow.addConditionalEdges(
   }
 );
 
-workflow.addEdge("validate", "act");
-workflow.addEdge("act", "resultAnalysis");
-workflow.addEdge("resultAnalysis", "observe");
+(workflow as any).addEdge("validate", "act");
+(workflow as any).addEdge("act", "resultAnalysis");
+(workflow as any).addEdge("resultAnalysis", "observe");
 
 // Compile the graph
 const app = workflow.compile();
