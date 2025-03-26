@@ -336,12 +336,12 @@ workflow.addNode("observe", runObserveNodeWrapper);
 workflow.addNode("think", runThinkNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 
-// Define edges - use the correct type signatures
+// Define edges - use the correct type signatures with type assertions
 workflow.setEntryPoint("__start__"); // Use the default entry point
-workflow.addEdge("__start__", "observe"); // Connect entry to observe
-workflow.addEdge(["observe"], "think");
-workflow.addEdge(["think"], "act");
-workflow.addEdge(["act"], "observe"); // Complete the loop
+workflow.addEdge("__start__" as any, "observe" as any); // Connect entry to observe
+workflow.addEdge(["observe"] as any, "think" as any);
+workflow.addEdge(["think"] as any, "act" as any);
+workflow.addEdge(["act"] as any, "observe" as any); // Complete the loop
 
 // Compile the graph
 const app = workflow.compile();

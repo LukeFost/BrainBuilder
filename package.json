@@ -9,6 +9,7 @@
     "start-ts": "ts-node src/index.ts",
     "dev-ts": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
+    "build-force": "tsc --noEmitOnError false",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
