@@ -234,7 +234,7 @@ bot.on('error', console.log);
 
 // --- Graph Nodes ---
 // Node functions now return the next node name instead of state updates
-async function runObserveNode(state: State): Promise<AgentNode> {
+async function runObserveNode(state: State): Promise<AgentNodeType> {
   console.log("--- Running Observe Node ---");
   if (!observeManager || !mcDataInstance) {
     console.error("ObserveManager or mcDataInstance not initialized!");
@@ -254,7 +254,7 @@ async function runObserveNode(state: State): Promise<AgentNode> {
   return "think";
 }
 
-async function runThinkNode(state: State): Promise<AgentNode> {
+async function runThinkNode(state: State): Promise<AgentNodeType> {
   console.log("--- Running Think Node ---");
   try {
     // Get the think updates
@@ -279,7 +279,7 @@ async function runThinkNode(state: State): Promise<AgentNode> {
   }
 }
 
-async function runValidateNode(state: State): Promise<AgentNode> {
+async function runValidateNode(state: State): Promise<AgentNodeType> {
   console.log("--- Running Validate Node ---");
   try {
     // Get the validation updates
@@ -297,7 +297,7 @@ async function runValidateNode(state: State): Promise<AgentNode> {
   }
 }
 
-async function runActNode(state: State): Promise<AgentNode> {
+async function runActNode(state: State): Promise<AgentNodeType> {
   console.log("--- Running Act Node ---");
   const actionToPerform = state.lastAction;
 
@@ -362,7 +362,7 @@ async function runActNode(state: State): Promise<AgentNode> {
   return "resultAnalysis";
 }
 
-async function runResultAnalysisNode(state: State): Promise<AgentNode> {
+async function runResultAnalysisNode(state: State): Promise<AgentNodeType> {
   console.log("--- Running Result Analysis Node ---");
   try {
     const analysisResult = await resultAnalysisManager.analyze(state);
@@ -377,17 +377,17 @@ async function runResultAnalysisNode(state: State): Promise<AgentNode> {
 }
 
 // Add a start node
-async function startNode(): Promise<AgentNode> {
+async function startNode(): Promise<AgentNodeType> {
   return "observe";
 }
 
 
 // --- Build the Graph ---
 // Define the possible node names explicitly
-type AgentNode = "observe" | "think" | "validate" | "act" | "resultAnalysis" | "__start__";
+type AgentNodeType = "__start__" | "__end__" | "observe" | "think" | "validate" | "act" | "resultAnalysis";
 
 // Use State directly as the graph's state type with channels in constructor
-const workflow = new StateGraph<State, Partial<State>, AgentNode>({
+const workflow = new StateGraph<State, Partial<State>, AgentNodeType>({
   channels: {
     memory: {
       value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left, 
@@ -431,20 +431,20 @@ workflow.addNode("resultAnalysis", new RunnableLambda({ func: runResultAnalysisN
 // Set the entry point
 workflow.setEntryPoint("__start__");
 
-// Add edges with the correct format (source nodes in an array)
-workflow.addEdge(["__start__"], "observe");
-workflow.addEdge(["observe"], "think");
-workflow.addEdge(["think"], "validate");
-workflow.addEdge(["validate"], "act");
-workflow.addEdge(["act"], "resultAnalysis");
-workflow.addEdge(["resultAnalysis"], "observe");
+// Add edges with the correct format (simple strings instead of arrays)
+workflow.addEdge("__start__", "observe");
+workflow.addEdge("observe", "think");
+workflow.addEdge("think", "validate");
+workflow.addEdge("validate", "act");
+workflow.addEdge("act", "resultAnalysis");
+workflow.addEdge("resultAnalysis", "observe");
 
 // Compile the graph
 const app = workflow.compile();
 
 
 // --- LangGraph Agent Loop ---
-// Replace the entire body of startAgentLoop with this:
+// Agent loop implementation
 async function startAgentLoop() {
   console.log('Starting LangGraph agent loop...');
   const streamConfig: RunnableConfig = { recursionLimit: 300 }; // Config for invoke
@@ -454,8 +454,12 @@ async function startAgentLoop() {
     console.log("--- Initial Observation ---");
     // Use the wrapper node function directly with the current State
     const initialObservationUpdate = await runObserveNode(currentAgentState);
-    // Merge the initial observation update into the current state
-    currentAgentState = { ...currentAgentState, ...initialObservationUpdate };
+    // Merge the initial observation update into the current state with proper handling
+    currentAgentState = { 
+      ...currentAgentState, 
+      lastAction: initialObservationUpdate === "observe" ? currentAgentState.lastAction : undefined,
+      lastActionResult: initialObservationUpdate === "observe" ? "Observation completed" : currentAgentState.lastActionResult
+    };
     // Check if the update contained an error message (simple check)
     if (currentAgentState.lastActionResult?.includes("Error:")) {
         console.error("Failed to get valid initial state from observation:", currentAgentState.lastActionResult);
