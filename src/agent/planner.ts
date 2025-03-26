@@ -83,7 +83,8 @@ Plan:`; // Ensure 'Plan:' label is present for potential parsing
         // Parse the cleaned response into individual steps, removing potential "Plan:" prefix and numbering
         const planSteps = responseText.replace(/^Plan:\s*/i, '').split('\n')
           .map(line => line.trim().replace(/^\d+\.\s*/, '')) // Remove numbering
-          .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('#')); // Filter empty lines/comments
+          .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('#')) // Filter empty lines/comments
+          .filter(line => line !== '```'); // Filter out ``` lines
 
         console.log("[Planner] Generated Plan:", planSteps);
         if (planSteps.length === 0) {
