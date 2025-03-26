@@ -125,6 +125,8 @@ export const craftItemAction: Action = {
                 return "Action stopped by user.";
             }
             try {
+                // Add logging for the actual craft call
+                console.log(`[Action:craftItem] Calling bot.craft for ${count} ${normalizedItemName} (hand) with recipe: ${JSON.stringify(handRecipe)}`);
                 await bot.craft(handRecipe, count, undefined); // Pass undefined instead of null
                 console.log(`[Action:craftItem] bot.craft call succeeded for ${count} ${normalizedItemName} (hand)`);
                 // DO NOT update state inventory here.
@@ -193,6 +195,8 @@ export const craftItemAction: Action = {
                 return "Action stopped by user.";
             }
             try {
+                // Add logging for the actual craft call
+                console.log(`[Action:craftItem] Calling bot.craft for ${count} ${normalizedItemName} (table) with recipe: ${JSON.stringify(tableRecipe)} and table: ${craftingTableBlock?.position}`);
                 await bot.craft(tableRecipe, count, craftingTableBlock); // Craft using table
                 console.log(`[Action:craftItem] bot.craft call succeeded for ${count} ${normalizedItemName} using crafting table.`);
                 // DO NOT update state inventory here.
