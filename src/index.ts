@@ -234,27 +234,25 @@ bot.on('error', console.log);
 
 // --- Graph Nodes ---
 // Node functions now return the next node name instead of state updates
-async function runObserveNode(state: State): Promise<AgentNodeType> {
+async function runObserveNode(state: State): Promise<string> {
   console.log("--- Running Observe Node ---");
   if (!observeManager || !mcDataInstance) {
     console.error("ObserveManager or mcDataInstance not initialized!");
     // Update the state
     state.lastActionResult = "Error: Core components not ready.";
-    // Return the next node
-    return "think";
+  } else {
+    // Get the observation updates
+    const observationResult = await observeManager.observe(state);
+    // Update the state
+    Object.assign(state, observationResult);
+    state.memory = memoryManager.fullMemory;
   }
   
-  // Get the observation updates
-  const observationResult = await observeManager.observe(state);
-  // Update the state
-  Object.assign(state, observationResult);
-  state.memory = memoryManager.fullMemory;
-  
-  // Return the next node
-  return "think";
+  // We don't need to return the next node anymore, edges handle that
+  return "";
 }
 
-async function runThinkNode(state: State): Promise<AgentNodeType> {
+async function runThinkNode(state: State): Promise<string> {
   console.log("--- Running Think Node ---");
   try {
     // Get the think updates
@@ -262,49 +260,39 @@ async function runThinkNode(state: State): Promise<AgentNodeType> {
     // Update the state
     Object.assign(state, thinkResult);
     
-    // Decide whether to end or continue
-    if (state.currentGoal === "Waiting for instructions" &&
-        state.lastAction?.includes("askForHelp") &&
-        !state.lastActionResult?.includes("New goal")) {
-      console.log("[Graph Condition] Think -> END");
-      return END as any; // Cast to any to avoid type issues
-    } else {
-      console.log("[Graph Condition] Think -> validate");
-      return "validate";
-    }
+    // We no longer need to handle edge logic here - it's handled by the edge conditions
+    console.log("[Graph] Think completed");
+    return ""; // Empty string as we use edge conditions now
   } catch (error: unknown) {
     console.error('[ThinkNode] Error during thinking process:', error);
     state.lastAction = 'askForHelp An internal error occurred during thinking.';
-    return "validate";
+    return ""; // Let edge conditions determine next step
   }
 }
 
-async function runValidateNode(state: State): Promise<AgentNodeType> {
+async function runValidateNode(state: State): Promise<string> {
   console.log("--- Running Validate Node ---");
   try {
     // Get the validation updates
     const validateResult = await validateManager.validate(state);
     // Update the state
     Object.assign(state, validateResult);
-    
-    // Return the next node
-    return "act";
   } catch (error: unknown) {
     console.error('[ValidateNode] Error during validation process:', error);
     state.lastAction = 'askForHelp';
     state.lastActionResult = 'An internal error occurred during validation.';
-    return "act";
   }
+  return "";
 }
 
-async function runActNode(state: State): Promise<AgentNodeType> {
+async function runActNode(state: State): Promise<string> {
   console.log("--- Running Act Node ---");
   const actionToPerform = state.lastAction;
 
   if (!actionToPerform) {
     console.log("[ActNode] No action decided. Skipping act node.");
     state.lastActionResult = "No action to perform";
-    return "resultAnalysis";
+    return "";
   }
 
   const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
@@ -359,64 +347,63 @@ async function runActNode(state: State): Promise<AgentNodeType> {
   state.currentPlan = updatedPlan;
   state.memory = memoryManager.fullMemory;
 
-  return "resultAnalysis";
+  return "";
 }
 
-async function runResultAnalysisNode(state: State): Promise<AgentNodeType> {
+async function runResultAnalysisNode(state: State): Promise<string> {
   console.log("--- Running Result Analysis Node ---");
   try {
     const analysisResult = await resultAnalysisManager.analyze(state);
     Object.assign(state, analysisResult);
-    return "observe";
   } catch (error: unknown) {
     console.error('[ResultAnalysisNode] Error during result analysis process:', error);
     state.lastAction = 'askForHelp';
     state.lastActionResult = 'An internal error occurred during result analysis.';
-    return "observe";
   }
+  return "";
 }
 
 // Add a start node
-async function startNode(): Promise<AgentNodeType> {
-  return "observe";
+async function startNode(): Promise<string> {
+  return "";
 }
 
 
 // --- Build the Graph ---
-// Define the possible node names explicitly
-type AgentNodeType = "__start__" | "__end__" | "observe" | "think" | "validate" | "act" | "resultAnalysis";
+// Create a StateGraph instance with State as the state type
+const workflow = new StateGraph<State>({
+  channels: {}, // Empty channels object as required by constructor
+});
 
-// Use State directly as the graph's state type with channels in constructor
-const workflow = new StateGraph<State, Partial<State>, AgentNodeType>({
-  channels: {
-    memory: {
-      value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left, 
-      default: () => currentAgentState.memory
-    },
-    inventory: {
-      value: (left: Inventory, right?: Inventory) => right ?? left,
-      default: () => currentAgentState.inventory
-    },
-    surroundings: {
-      value: (left: Surroundings, right?: Surroundings) => right ?? left,
-      default: () => currentAgentState.surroundings
-    },
-    currentGoal: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.currentGoal
-    },
-    currentPlan: {
-      value: (left?: string[], right?: string[]) => right ?? left,
-      default: () => currentAgentState.currentPlan
-    },
-    lastAction: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.lastAction
-    },
-    lastActionResult: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.lastActionResult
-    }
+// Configure state management
+workflow.addState({
+  memory: {
+    value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left, 
+    default: () => currentAgentState.memory
+  },
+  inventory: {
+    value: (left: Inventory, right?: Inventory) => right ?? left,
+    default: () => currentAgentState.inventory
+  },
+  surroundings: {
+    value: (left: Surroundings, right?: Surroundings) => right ?? left,
+    default: () => currentAgentState.surroundings
+  },
+  currentGoal: {
+    value: (left?: string, right?: string) => right ?? left,
+    default: () => currentAgentState.currentGoal
+  },
+  currentPlan: {
+    value: (left?: string[], right?: string[]) => right ?? left,
+    default: () => currentAgentState.currentPlan
+  },
+  lastAction: {
+    value: (left?: string, right?: string) => right ?? left,
+    default: () => currentAgentState.lastAction
+  },
+  lastActionResult: {
+    value: (left?: string, right?: string) => right ?? left,
+    default: () => currentAgentState.lastActionResult
   }
 });
 
@@ -431,13 +418,37 @@ workflow.addNode("resultAnalysis", new RunnableLambda({ func: runResultAnalysisN
 // Set the entry point
 workflow.setEntryPoint("__start__");
 
-// Add edges with the correct format (simple strings instead of arrays)
-workflow.addEdge("__start__", "observe");
-workflow.addEdge("observe", "think");
-workflow.addEdge("think", "validate");
-workflow.addEdge("validate", "act");
-workflow.addEdge("act", "resultAnalysis");
-workflow.addEdge("resultAnalysis", "observe");
+// Add edges with the proper object syntax
+workflow.addEdge({
+  source: "__start__",
+  target: "observe"
+});
+workflow.addEdge({
+  source: "observe",
+  target: "think"
+});
+workflow.addEdge({
+  source: "think", 
+  target: "validate",
+  condition: (state) => !state.lastAction?.includes("askForHelp") || state.currentGoal !== "Waiting for instructions"
+});
+workflow.addEdge({
+  source: "think",
+  target: END,
+  condition: (state) => state.lastAction?.includes("askForHelp") && state.currentGoal === "Waiting for instructions"
+});
+workflow.addEdge({
+  source: "validate",
+  target: "act"
+});
+workflow.addEdge({
+  source: "act",
+  target: "resultAnalysis" 
+});
+workflow.addEdge({
+  source: "resultAnalysis",
+  target: "observe"
+});
 
 // Compile the graph
 const app = workflow.compile();
