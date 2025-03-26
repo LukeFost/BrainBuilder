@@ -116,6 +116,11 @@ export const placeBlockAction: Action = {
 
         // 6. Place the block
         console.log(`[Action:placeBlock] Placing ${blockType} at ${targetPos} against ${referenceBlock.name} at ${referenceBlock.position} (face: ${faceVector})`);
+        // Check if goal changed before placing
+        if (currentState.currentGoal === "Waiting for instructions") {
+            console.log(`[Action:placeBlock] Stopping action due to changed goal.`);
+            return "Action stopped by user.";
+        }
         try {
             await bot.placeBlock(referenceBlock, faceVector);
         } catch (placeError: any) {
