@@ -233,61 +233,78 @@ bot.on('error', console.log);
 // }
 
 // --- Graph Nodes ---
-// observeManager and mcDataInstance are now guaranteed to be initialized before startAgentLoop is called
-
-// Node functions now operate directly on State and return Partial<State>
-async function runObserveNodeWrapper(currentState: State): Promise<Partial<State>> {
+// Node functions now return the next node name instead of state updates
+async function runObserveNode(state: State): Promise<AgentNode> {
   console.log("--- Running Observe Node ---");
   if (!observeManager || !mcDataInstance) {
-      console.error("ObserveManager or mcDataInstance not initialized!");
-      // Return partial update for the State object
-      return { lastActionResult: "Error: Core components not ready." };
+    console.error("ObserveManager or mcDataInstance not initialized!");
+    // Update the state
+    state.lastActionResult = "Error: Core components not ready.";
+    // Return the next node
+    return "think";
   }
-  // Pass the current state directly
-  const observationResult = await observeManager.observe(currentState);
-  // Return the partial update, including updated memory
-  return { ...observationResult, memory: memoryManager.fullMemory };
+  
+  // Get the observation updates
+  const observationResult = await observeManager.observe(state);
+  // Update the state
+  Object.assign(state, observationResult);
+  state.memory = memoryManager.fullMemory;
+  
+  // Return the next node
+  return "think";
 }
 
-async function runThinkNodeWrapper(currentState: State): Promise<Partial<State>> {
+async function runThinkNode(state: State): Promise<AgentNode> {
   console.log("--- Running Think Node ---");
   try {
-    // Pass the current state directly
-    const thinkResult = await thinkManager.think(currentState);
-    // Return the partial update from the think manager
-    return thinkResult;
+    // Get the think updates
+    const thinkResult = await thinkManager.think(state);
+    // Update the state
+    Object.assign(state, thinkResult);
+    
+    // Decide whether to end or continue
+    if (state.currentGoal === "Waiting for instructions" &&
+        state.lastAction?.includes("askForHelp") &&
+        !state.lastActionResult?.includes("New goal")) {
+      console.log("[Graph Condition] Think -> END");
+      return END as any; // Cast to any to avoid type issues
+    } else {
+      console.log("[Graph Condition] Think -> validate");
+      return "validate";
+    }
   } catch (error: unknown) {
     console.error('[ThinkNode] Error during thinking process:', error);
-    // Return partial update for the State object on error
-    return { lastAction: 'askForHelp An internal error occurred during thinking.' };
+    state.lastAction = 'askForHelp An internal error occurred during thinking.';
+    return "validate";
   }
 }
 
-async function runValidateNodeWrapper(currentState: State): Promise<Partial<State>> {
+async function runValidateNode(state: State): Promise<AgentNode> {
   console.log("--- Running Validate Node ---");
   try {
-    // Pass the current state directly
-    const validateResult = await validateManager.validate(currentState);
-    // Return the partial update from the validate manager
-    return validateResult;
+    // Get the validation updates
+    const validateResult = await validateManager.validate(state);
+    // Update the state
+    Object.assign(state, validateResult);
+    
+    // Return the next node
+    return "act";
   } catch (error: unknown) {
     console.error('[ValidateNode] Error during validation process:', error);
-    // Return partial update for the State object on error
-    return {
-      lastAction: 'askForHelp',
-      lastActionResult: 'An internal error occurred during validation.'
-    };
+    state.lastAction = 'askForHelp';
+    state.lastActionResult = 'An internal error occurred during validation.';
+    return "act";
   }
 }
 
-async function runActNodeWrapper(currentState: State): Promise<Partial<State>> {
+async function runActNode(state: State): Promise<AgentNode> {
   console.log("--- Running Act Node ---");
-  const actionToPerform = currentState.lastAction;
+  const actionToPerform = state.lastAction;
 
   if (!actionToPerform) {
     console.log("[ActNode] No action decided. Skipping act node.");
-    // Return partial update for the State object
-    return { lastActionResult: "No action to perform" };
+    state.lastActionResult = "No action to perform";
+    return "resultAnalysis";
   }
 
   const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
@@ -300,16 +317,14 @@ async function runActNodeWrapper(currentState: State): Promise<Partial<State>> {
   if (actionName && actions[actionName]) {
     try {
       console.log(`[ActNode] Executing action: ${actionName} with args: ${args.join(', ')}`);
-      // Pass the current state (from wrapper) and mcDataInstance to the action execution context
       if (!mcDataInstance) {
-          // This check prevents runtime errors if spawn failed silently
-          result = "Critical Error: mcDataInstance is not initialized. Cannot execute action.";
-          console.error(`[ActNode] ${result}`);
-          executionSuccess = false;
+        result = "Critical Error: mcDataInstance is not initialized. Cannot execute action.";
+        console.error(`[ActNode] ${result}`);
+        executionSuccess = false;
       } else {
-          result = await actions[actionName].execute(bot, mcDataInstance, args, currentState);
-          executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error');
-          console.log(`[ActNode] Action Result: ${result}`);
+        result = await actions[actionName].execute(bot, mcDataInstance, args, state);
+        executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error');
+        console.log(`[ActNode] Action Result: ${result}`);
       }
     } catch (error: unknown) {
       result = `Failed to execute ${actionName}: ${error instanceof Error ? error.message : String(error)}`;
@@ -322,52 +337,48 @@ async function runActNodeWrapper(currentState: State): Promise<Partial<State>> {
     executionSuccess = false;
   }
 
-  // await memoryManager.addToShortTerm(`Action: ${actionToPerform} -> Result: ${result}`);
-  await memoryManager.addRecentAction(actionToPerform, result); // Use the new method
+  await memoryManager.addRecentAction(actionToPerform, result);
 
-  let updatedPlan = currentState.currentPlan;
+  let updatedPlan = state.currentPlan;
 
-  // Update plan only on successful execution of the planned step
-  if (executionSuccess && currentState.currentPlan && currentState.currentPlan.length > 0) {
-      // Clean both the executed action and the plan step for comparison
-      const executedActionClean = actionToPerform.replace(/^\d+\.\s*/, '').trim();
-      const currentPlanStepClean = currentState.currentPlan[0].replace(/^\d+\.\s*/, '').trim();
+  if (executionSuccess && state.currentPlan && state.currentPlan.length > 0) {
+    const executedActionClean = actionToPerform.replace(/^\d+\.\s*/, '').trim();
+    const currentPlanStepClean = state.currentPlan[0].replace(/^\d+\.\s*/, '').trim();
 
-      if (executedActionClean === currentPlanStepClean) {
-          console.log(`[ActNode] Completed plan step: ${currentState.currentPlan[0]}`);
-          updatedPlan = currentState.currentPlan.slice(1); // Advance the plan
-      } else {
-          console.warn(`[ActNode] Executed action "${executedActionClean}" succeeded but did not match planned step "${currentPlanStepClean}". Plan might be outdated or action deviated.`);
-          // Let Think node decide if replan is needed based on the result and state.
-      }
+    if (executedActionClean === currentPlanStepClean) {
+      console.log(`[ActNode] Completed plan step: ${state.currentPlan[0]}`);
+      updatedPlan = state.currentPlan.slice(1);
+    } else {
+      console.warn(`[ActNode] Executed action "${executedActionClean}" succeeded but did not match planned step "${currentPlanStepClean}". Plan might be outdated or action deviated.`);
+    }
   } else if (!executionSuccess) {
-      console.log(`[ActNode] Action "${actionToPerform}" failed or did not succeed. Plan step not completed.`);
-      // Let Think/ResultAnalysis nodes handle failure.
+    console.log(`[ActNode] Action "${actionToPerform}" failed or did not succeed. Plan step not completed.`);
   }
 
-  // Return partial update for the State object
-  return {
-      lastActionResult: result,
-      currentPlan: updatedPlan,
-      memory: memoryManager.fullMemory // Ensure memory is updated
-  };
+  state.lastActionResult = result;
+  state.currentPlan = updatedPlan;
+  state.memory = memoryManager.fullMemory;
+
+  return "resultAnalysis";
 }
 
-async function runResultAnalysisNodeWrapper(currentState: State): Promise<Partial<State>> {
+async function runResultAnalysisNode(state: State): Promise<AgentNode> {
   console.log("--- Running Result Analysis Node ---");
   try {
-    // Pass the current state directly
-    const analysisResult = await resultAnalysisManager.analyze(currentState);
-    // Return the partial update from the analysis manager
-    return analysisResult;
+    const analysisResult = await resultAnalysisManager.analyze(state);
+    Object.assign(state, analysisResult);
+    return "observe";
   } catch (error: unknown) {
     console.error('[ResultAnalysisNode] Error during result analysis process:', error);
-    // Return partial update for the State object on error
-    return {
-      lastAction: 'askForHelp',
-      lastActionResult: 'An internal error occurred during result analysis.'
-    };
+    state.lastAction = 'askForHelp';
+    state.lastActionResult = 'An internal error occurred during result analysis.';
+    return "observe";
   }
+}
+
+// Add a start node
+async function startNode(): Promise<AgentNode> {
+  return "observe";
 }
 
 
@@ -420,55 +431,45 @@ const workflow = new StateGraph<State, Partial<State>, AgentNode>({
   }
 });
 
-// Add nodes using the wrapper functions wrapped in RunnableLambda
-workflow.addNode("observe", new RunnableLambda({ func: runObserveNodeWrapper }));
-workflow.addNode("think", new RunnableLambda({ func: runThinkNodeWrapper }));
-workflow.addNode("validate", new RunnableLambda({ func: runValidateNodeWrapper }));
-workflow.addNode("act", new RunnableLambda({ func: runActNodeWrapper }));
-workflow.addNode("resultAnalysis", new RunnableLambda({ func: runResultAnalysisNodeWrapper }));
+// Add nodes directly with the functions
+workflow.addNode("__start__", startNode);
+workflow.addNode("observe", runObserveNode);
+workflow.addNode("think", runThinkNode);
+workflow.addNode("validate", runValidateNode);
+workflow.addNode("act", runActNode);
+workflow.addNode("resultAnalysis", runResultAnalysisNode);
 
-// Define edges without 'as any' for better type checking
-// First set the entry point
-workflow.setEntryPoint("observe"); // Start with observe node
+// Set the entry point
+workflow.setEntryPoint("__start__");
 
-// Then add the edges to form a cycle with conditional ending
-workflow.addEdge("observe", "think");
+// Add edges with the correct format
+workflow.addEdge({
+  source: "__start__",
+  target: "observe"
+});
 
-// Define the conditional logic after the 'think' node
-// Input is now State directly
-function shouldContinueOrEnd(currentState: State): "end" | "validate" {
-  const shouldEnd = currentState.currentGoal === "Waiting for instructions" &&
-                    currentState.lastAction?.includes("askForHelp") &&
-                    !currentState.lastActionResult?.includes("New goal");
+workflow.addEdge({
+  source: "observe", 
+  target: "think"
+});
 
-  if (shouldEnd) {
-    console.log("[Graph Condition] Think -> END");
-    return "end";
-  } else {
-    console.log("[Graph Condition] Think -> validate");
-    return "validate";
-  }
-}
+// The conditional logic is now inside the think node
+// No need for addConditionalEdges here
 
-// Add conditional edges from 'think'
-workflow.addConditionalEdges(
-  "think", // Source node
-  shouldContinueOrEnd, // Function to decide the next node
-  { // Mapping of function return values to target nodes
-    "end": END, // Use END directly
-    "validate": "validate",
-  }
-);
+workflow.addEdge({
+  source: "validate",
+  target: "act"
+});
 
+workflow.addEdge({
+  source: "act",
+  target: "resultAnalysis"
+});
 
-// Validate always goes to act
-workflow.addEdge("validate", "act");
-
-// Act now goes to result analysis instead of directly to observe
-workflow.addEdge("act", "resultAnalysis");
-
-// Result analysis goes to observe to complete the loop
-workflow.addEdge("resultAnalysis", "observe");
+workflow.addEdge({
+  source: "resultAnalysis",
+  target: "observe"
+});
 
 // Compile the graph
 const app = workflow.compile();
@@ -507,9 +508,8 @@ async function startAgentLoop() {
 
         console.log(`--- Starting New Graph Invocation for Goal: "${currentAgentState.currentGoal}" ---`);
 
-        // Invoke the graph with the current State object directly
-        // The result will be the final State object after the graph run
-        const finalState = await app.invoke(currentAgentState, streamConfig) as State | undefined;
+        // Invoke the graph with null as the input (state is managed internally)
+        const finalState = await app.invoke(null, streamConfig) as State | undefined;
 
         // Update the shared state with the final result of the graph execution
         if (finalState) {
