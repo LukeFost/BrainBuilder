@@ -1,5 +1,6 @@
 import { Action, State } from '../types';
-import { Bot, Recipe } from 'mineflayer'; // Use specific Bot type, import Recipe
+import { Bot } from 'mineflayer'; // Use specific Bot type
+import { Recipe } from 'prismarine-recipe'; // Import Recipe from correct package
 import { IndexedData } from 'minecraft-data'; // Import type
 import { Block } from 'prismarine-block'; // Import Block type for crafting table arg
 

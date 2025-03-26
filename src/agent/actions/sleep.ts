@@ -10,7 +10,7 @@ export const sleepAction: Action = {
   execute: async (bot: Bot, mcData: IndexedData, args: string[], currentState: State): Promise<string> => {
     try {
       // Find a bed nearby using mcData
-      const bedBlockIds = new Set(mcData.beds.map(id => mcData.blocks[id].id)); // Get IDs of all bed blocks
+      const bedBlockIds = new Set(mcData.beds.map((id: number) => mcData.blocks[id].id)); // Get IDs of all bed blocks
       const bed: Block | null = bot.findBlock({
         matching: (block: Block) => bedBlockIds.has(block.type), // Check if block type is in the set of bed IDs
         maxDistance: 10 // Search within 10 blocks

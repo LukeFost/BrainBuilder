@@ -87,7 +87,7 @@ bot.once('spawn', async () => {
     }
     console.log(`minecraft-data loaded for version ${bot.version}.`);
     // Create Movements using the bot and mcDataInstance
-    const defaultMove = new pathfinder.Movements(bot, mcDataInstance); // Pass mcDataInstance
+    const defaultMove = new pathfinder.Movements(bot); // Remove mcDataInstance
     defaultMove.allowSprinting = true;
     defaultMove.canDig = true;
     bot.pathfinder.setMovements(defaultMove);
@@ -337,10 +337,9 @@ workflow.addNode("think", runThinkNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 
 // Define edges
-workflow.setEntryPoint("observe"); // Start with observation
-workflow.addEdge("observe", "think"); // After observing, think
-workflow.addEdge("think", "act");   // After thinking, act
-workflow.addEdge("act", "observe"); // After acting, observe again (loop)
+workflow.setEntryPoint("__start__"); // Use __start__ as entry point
+workflow.addEdge("__start__", "observe"); // Start with observation
+// These edges are now defined correctly with __start__ as the entry point
 
 // Compile the graph
 const app = workflow.compile();
@@ -366,7 +365,8 @@ async function startAgentLoop() {
 
     // The loop continuously processes state updates from the graph stream
     // Pass the initial AgentState wrapper to the stream
-    for await (const event of app.stream({ state: currentAgentState }, streamConfig)) {
+    const stream = await app.stream({ state: currentAgentState }, streamConfig);
+    for await (const event of stream) {
         // The event object contains the output of the node that just ran,
         // keyed by the node name. The 'state' channel is automatically updated.
 

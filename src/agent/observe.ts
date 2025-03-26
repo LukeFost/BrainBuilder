@@ -84,7 +84,7 @@ export class ObserveManager {
         },
         health: this.bot.health,
         food: this.bot.food,
-        timeOfDay: timeOfDay, // Added
+        dayTime: timeOfDay, // Changed from timeOfDay to dayTime
         biome: biomeName // Use the biome name string
       }
     };
