@@ -92,32 +92,42 @@ bot.once('spawn', async () => {
   } else {
     console.error("Agent loop not started due to pathfinder initialization failure.");
     bot.chat("I cannot move properly. Pathfinder failed to load.");
+    // Optionally, stop the bot or prevent the agent loop if pathfinder is critical
+    return;
   }
 });
 
 // --- Chat Command Handling ---
+// We need a way to update the state used by the LangGraph loop.
+// A simple approach is to have a mutable `currentAgentState` object.
+let currentAgentState: State = { ...initialState }; // Initialize with initial state
+
 bot.on('chat', async (username, message) => {
-  console.log(`[Chat] Received message from ${username}: "${message}"`); 
+  console.log(`[Chat] Received message from ${username}: "${message}"`);
   if (username === bot.username) return;
-  
+
   console.log(`[Chat] Processing command from ${username}.`);
   if (message.startsWith('goal ')) {
     const newGoal = message.slice(5);
-    state.currentGoal = newGoal;
-    state.currentPlan = undefined;
+    // Update the shared state
+    currentAgentState.currentGoal = newGoal;
+    currentAgentState.currentPlan = undefined; // Force replan
+    currentAgentState.lastActionResult = `New goal received: ${newGoal}`; // Inform the agent loop
     bot.chat(`New goal set: ${newGoal}`);
-    // Make sure to await the async method
     await memoryManager.addToShortTerm(`Player ${username} set a new goal: ${newGoal}`);
     console.log(`[Chat] New goal set by ${username}: ${newGoal}`);
   } else if (message === 'status') {
-    const status = `Goal: ${state.currentGoal || 'None'}\nPlan: ${state.currentPlan?.join(', ') || 'None'}\nLast action: ${state.lastAction || 'None'}\nResult: ${state.lastActionResult || 'None'}`;
+    // Read from the shared state
+    const status = `Goal: ${currentAgentState.currentGoal || 'None'}\nPlan: ${currentAgentState.currentPlan?.join(', ') || 'None'}\nLast action: ${currentAgentState.lastAction || 'None'}\nResult: ${currentAgentState.lastActionResult || 'None'}`;
     bot.chat(status);
     console.log(`[Chat] Sending status to ${username}.`);
   } else if (message === 'memory') {
     bot.chat(`Short-term memory: ${memoryManager.shortTerm.join(', ')}`);
-    bot.chat(`Long-term memory summary available`);
+    // Add long-term summary if available in memoryManager
+    // bot.chat(`Long-term memory summary: ${memoryManager.longTermSummary}`);
   } else if (message === 'inventory') {
-    const items = Object.entries(state.inventory.items)
+    // Read from the shared state
+    const items = Object.entries(currentAgentState.inventory.items)
       .map(([item, count]) => `${item}: ${count}`)
       .join(', ');
     bot.chat(`Inventory: ${items || 'Empty'}`);
@@ -134,58 +144,84 @@ Available commands:
     `);
   } else if (message === 'stop') {
     bot.chat('Stopping current activity');
+    // Update shared state - potentially clear plan/action?
+    currentAgentState.currentPlan = undefined;
+    currentAgentState.lastAction = undefined;
+    currentAgentState.lastActionResult = 'Activity stopped by user.';
     await memoryManager.addToShortTerm(`Player ${username} requested to stop current activity`);
   } else if (message === 'explore') {
-    state.currentGoal = 'Explore the surroundings and gather information';
-    state.currentPlan = undefined;
+    // Update shared state
+    currentAgentState.currentGoal = 'Explore the surroundings and gather information';
+    currentAgentState.currentPlan = undefined;
+    currentAgentState.lastActionResult = 'Switched to exploration mode.';
     bot.chat('Switching to exploration mode');
     await memoryManager.addToShortTerm(`Player ${username} requested exploration mode`);
-  } else if (message.startsWith('follow ')) {
-    const targetName = message.slice(7);
-    bot.chat(`Following ${targetName}`);
   }
+  // Remove 'follow' command for now as it's not implemented as an action
+  // else if (message.startsWith('follow ')) {
+  //   const targetName = message.slice(7);
+  //   bot.chat(`Following ${targetName}`);
+  // }
 });
 
 bot.on('kicked', console.log);
 bot.on('error', console.log);
 
-// --- Graph Nodes ---
-// Create an instance of ObserveManager
-let observeManager: ObserveManager | null = null;
 
-// Helper function for graph workflow
-async function runObserveNode(currentState: State): Promise<Partial<State>> {
-  console.log("--- Running Observe Node ---");
-  
-  if (!observeManager) {
-    observeManager = new ObserveManager(bot);
-  }
-  
-  const observationResult = await observeManager.observe(currentState);
-  
-  return {
-    ...observationResult,
-    memory: memoryManager.fullMemory
-  };
+// --- LangGraph Definition ---
+
+// Define the state structure for the graph
+// This mirrors the State type but might be used specifically by LangGraph if needed
+interface AgentState {
+  state: State;
+  config?: RunnableConfig; // Optional config for LangGraph runs
 }
 
-async function runThinkNode(currentState: State): Promise<Partial<State>> {
+// --- Graph Nodes ---
+// Ensure observeManager is initialized before use
+if (!observeManager) {
+  observeManager = new ObserveManager(bot);
+}
+
+// Node functions now operate on the AgentState wrapper
+async function runObserveNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+  console.log("--- Running Observe Node ---");
+  if (!observeManager) {
+      console.error("ObserveManager not initialized!");
+      return { state: { ...agentState.state, lastActionResult: "Error: ObserveManager not ready." } };
+  }
+  // Pass the current state from the wrapper to the original observe function
+  const observationResult = await observeManager.observe(agentState.state);
+  // Merge the observation result back into the state within the wrapper
+  const newState = { ...agentState.state, ...observationResult, memory: memoryManager.fullMemory };
+  return { state: newState };
+}
+
+async function runThinkNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
   console.log("--- Running Think Node ---");
   try {
-    return await thinkManager.think(currentState);
+    // Pass the current state from the wrapper to the original think function
+    const thinkResult = await thinkManager.think(agentState.state);
+    // Merge the think result back into the state within the wrapper
+    const newState = { ...agentState.state, ...thinkResult };
+    return { state: newState };
   } catch (error: unknown) {
     console.error('[ThinkNode] Error during thinking process:', error);
-    return { lastAction: 'askForHelp An internal error occurred during thinking.' };
+    // Update the state within the wrapper on error
+    const newState = { ...agentState.state, lastAction: 'askForHelp An internal error occurred during thinking.' };
+    return { state: newState };
   }
 }
 
-async function runActNode(currentState: State): Promise<Partial<State>> {
+async function runActNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
   console.log("--- Running Act Node ---");
+  const currentState = agentState.state; // Get state from wrapper
   const actionToPerform = currentState.lastAction;
 
   if (!actionToPerform) {
     console.log("[ActNode] No action decided. Skipping act node.");
-    return { lastActionResult: "No action to perform" };
+    // Return updated wrapper state
+    return { state: { ...currentState, lastActionResult: "No action to perform" } };
   }
 
   const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
@@ -198,6 +234,7 @@ async function runActNode(currentState: State): Promise<Partial<State>> {
   if (actionName && actions[actionName]) {
     try {
       console.log(`[ActNode] Executing action: ${actionName} with args: ${args.join(', ')}`);
+      // Pass the current state (from wrapper) to the action execution context
       result = await actions[actionName].execute(bot, args, currentState);
       executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error');
       console.log(`[ActNode] Action Result: ${result}`);
@@ -216,65 +253,128 @@ async function runActNode(currentState: State): Promise<Partial<State>> {
 
   let updatedPlan = currentState.currentPlan;
 
+  // Update plan only on successful execution of the planned step
   if (executionSuccess && currentState.currentPlan && currentState.currentPlan.length > 0) {
-    const currentPlanStepClean = currentState.currentPlan[0].replace(/^\d+\.\s*/, '').trim();
+      // Clean both the executed action and the plan step for comparison
+      const executedActionClean = actionToPerform.replace(/^\d+\.\s*/, '').trim();
+      const currentPlanStepClean = currentState.currentPlan[0].replace(/^\d+\.\s*/, '').trim();
 
-    if (actionToPerform === currentPlanStepClean) {
-      console.log(`[ActNode] Completed plan step: ${currentState.currentPlan[0]}`);
-      updatedPlan = currentState.currentPlan.slice(1);
-    } else {
-      console.warn(`[ActNode] Executed action "${actionToPerform}" succeeded but did not match planned step "${currentState.currentPlan[0]}". Plan might be outdated.`);
-    }
-  } else if (!executionSuccess && currentState.currentPlan && currentState.currentPlan.length > 0) {
-    console.log(`[ActNode] Action "${actionToPerform}" failed. Plan step "${currentState.currentPlan[0]}" not completed.`);
+      if (executedActionClean === currentPlanStepClean) {
+          console.log(`[ActNode] Completed plan step: ${currentState.currentPlan[0]}`);
+          updatedPlan = currentState.currentPlan.slice(1); // Advance the plan
+      } else {
+          console.warn(`[ActNode] Executed action "${executedActionClean}" succeeded but did not match planned step "${currentPlanStepClean}". Plan might be outdated or action deviated.`);
+          // Let Think node decide if replan is needed based on the result and state.
+      }
+  } else if (!executionSuccess) {
+      console.log(`[ActNode] Action "${actionToPerform}" failed or did not succeed. Plan step not completed.`);
+      // Let Think node handle failure and decide on replanning.
   }
 
-  return {
-    lastActionResult: result,
-    currentPlan: updatedPlan,
-    memory: memoryManager.fullMemory
+  // Construct the new state for the wrapper
+  const newState = {
+      ...currentState,
+      lastActionResult: result,
+      currentPlan: updatedPlan,
+      memory: memoryManager.fullMemory // Ensure memory is updated
   };
+  // Return the updated wrapper state
+  return { state: newState };
 }
 
-// --- Manual Agent Loop Implementation ---
-// Since LangGraph integration is causing type issues, we'll use a straightforward loop
+
+// --- Build the Graph ---
+const workflow = new StateGraph<AgentState>({
+  channels: {
+    state: {
+        // The value reducer takes the existing channel value and the new value
+        // and returns the updated channel value.
+        value: (left: State, right: State) => right, // Always take the latest state update
+        // The default value is used if the channel is accessed before it's been assigned.
+        default: () => currentAgentState // Start with the mutable currentAgentState
+    }
+    // Add config channel if needed for passing RunnableConfig through the graph
+    // config: {
+    //   value: (left?: RunnableConfig, right?: RunnableConfig) => right ?? left,
+    //   default: () => ({ recursionLimit: 150 } as RunnableConfig)
+    // }
+  }
+});
+
+// Add nodes using the wrapper functions
+workflow.addNode("observe", runObserveNodeWrapper);
+workflow.addNode("think", runThinkNodeWrapper);
+workflow.addNode("act", runActNodeWrapper);
+
+// Define edges
+workflow.setEntryPoint("observe"); // Start with observation
+workflow.addEdge("observe", "think"); // After observing, think
+workflow.addEdge("think", "act");   // After thinking, act
+workflow.addEdge("act", "observe"); // After acting, observe again (loop)
+
+// Compile the graph
+const app = workflow.compile();
+
+
+// --- LangGraph Agent Loop ---
 async function startAgentLoop() {
-  console.log('Starting agent loop');
+  console.log('Starting LangGraph agent loop...');
 
   try {
-    // Initial setup
-    let currentState = { ...state };
-    
-    // Run initial observation to populate surroundings
-    const initialObservation = await runObserveNode(currentState);
-    currentState = { ...currentState, ...initialObservation };
-    
-    console.log("Initial State:", currentState);
-    
-    // Main agent loop
-    while (true) {
-      // Run the think node
-      console.log("\n=== CYCLE: THINK ===");
-      const thinkResult = await runThinkNode(currentState);
-      currentState = { ...currentState, ...thinkResult };
-      console.log("After Think:", currentState.lastAction);
-      
-      // Run the act node
-      console.log("\n=== CYCLE: ACT ===");
-      const actResult = await runActNode(currentState);
-      currentState = { ...currentState, ...actResult };
-      console.log("After Act:", currentState.lastActionResult);
-      
-      // Run observe node
-      console.log("\n=== CYCLE: OBSERVE ===");
-      const observeResult = await runObserveNode(currentState);
-      currentState = { ...currentState, ...observeResult };
-      console.log("After Observe: Updated surroundings and memory");
-      
-      // Optional: Add delay between cycles to not overwhelm the system
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    // Initial observation to populate state before the loop starts feeding it
+    console.log("--- Initial Observation ---");
+    // Use the wrapper node function for consistency, passing the initial AgentState
+    const initialObservationResult = await runObserveNodeWrapper({ state: currentAgentState });
+    if (initialObservationResult.state) {
+        currentAgentState = initialObservationResult.state; // Update shared state from the wrapper's result
     }
+    console.log("Initial State Populated:", currentAgentState);
+
+
+    // Use app.stream to run the graph loop
+    const streamConfig: RunnableConfig = { recursionLimit: 150 }; // Adjust recursion limit as needed
+
+    // The loop continuously processes state updates from the graph stream
+    // Pass the initial AgentState wrapper to the stream
+    for await (const event of await app.stream({ state: currentAgentState }, streamConfig)) {
+        // The event object contains the output of the node that just ran,
+        // keyed by the node name. The 'state' channel is automatically updated.
+
+        // Log based on which node's output is present in the event
+        if (event.observe) {
+            console.log("\n=== Cycle End: OBSERVE ===");
+            // Update the shared state from the graph's latest state channel value
+            // Note: LangGraph automatically merges the output state into the channel
+            // We update our external `currentAgentState` to reflect the graph's internal state
+            currentAgentState = event.observe.state;
+            console.log("Shared State Updated After Observe");
+        } else if (event.think) {
+            console.log("\n=== Cycle End: THINK ===");
+            currentAgentState = event.think.state;
+            console.log("Shared State Updated After Think. Next Action:", currentAgentState.lastAction);
+        } else if (event.act) {
+            console.log("\n=== Cycle End: ACT ===");
+            currentAgentState = event.act.state;
+            console.log("Shared State Updated After Act. Result:", currentAgentState.lastActionResult);
+            // Optional delay after acting
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+             // This might happen for intermediate steps or if __end__ is reached
+             console.log("Graph stream event without specific node output:", event);
+        }
+
+        // Optional: Add termination condition check here if needed
+        // if (some_condition(currentAgentState)) {
+        //   console.log("Agent loop terminating.");
+        //   break; // Exit the for await loop
+        // }
+    }
+    console.log("Agent loop finished or was interrupted.");
+
   } catch (error: unknown) {
-    console.error('Error running agent loop:', error instanceof Error ? error.message : error);
+    console.error('Error running LangGraph agent loop:', error instanceof Error ? error.message : error);
+    if (error instanceof Error && error.stack) {
+        console.error(error.stack);
+    }
   }
 }
