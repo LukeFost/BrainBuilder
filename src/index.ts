@@ -401,15 +401,15 @@ const workflow = new StateGraph<State>({
 });
 
 // Add nodes with proper typing
-workflow.addNode("__start__", new RunnableLambda({ func: startNode }));
-workflow.addNode("observe", new RunnableLambda({ func: runObserveNode }));
-workflow.addNode("think", new RunnableLambda({ func: runThinkNode }));
-workflow.addNode("validate", new RunnableLambda({ func: runValidateNode }));
-workflow.addNode("act", new RunnableLambda({ func: runActNode }));
-workflow.addNode("resultAnalysis", new RunnableLambda({ func: runResultAnalysisNode }));
+workflow.addNode("__start__", startNode);
+workflow.addNode("observe", runObserveNode);
+workflow.addNode("think", runThinkNode);
+workflow.addNode("validate", runValidateNode);
+workflow.addNode("act", runActNode);
+workflow.addNode("resultAnalysis", runResultAnalysisNode);
 
 // Set the entry point and add edges with the proper syntax
-workflow.addEdge("__start__", "observe");
+workflow.addEdge(START, "observe"); // Use START constant
 workflow.addEdge("observe", "think");
 
 // Add conditional edges
@@ -417,9 +417,14 @@ workflow.addConditionalEdges(
   "think",
   (state: State) => {
     if (state.lastAction?.includes("askForHelp") && state.currentGoal === "Waiting for instructions") {
-      return END;
+      return END; // Use END constant
     }
     return "validate";
+  },
+  // Providing a path map helps with type checking and visualization
+  {
+    validate: "validate",
+    [END]: END,
   }
 );
 
