@@ -1,11 +1,14 @@
 import { State } from './types';
 import { Bot } from 'mineflayer';
+import { IndexedData } from 'minecraft-data'; // Import mcData type
 
 export class ObserveManager {
   private bot: Bot;
+  private mcData: IndexedData; // Store mcData instance
 
-  constructor(bot: Bot) {
+  constructor(bot: Bot, mcData: IndexedData) { // Accept mcData in constructor
     this.bot = bot;
+    this.mcData = mcData; // Store it
   }
 
   async observe(currentState: State): Promise<Partial<State>> {
@@ -65,7 +68,8 @@ export class ObserveManager {
     
     // Get time and biome
     const timeOfDay = this.bot.time.timeOfDay;
-    const biome = this.bot.world.getBiome(position.floored()); // Use floored position for biome
+    const biomeId = this.bot.world.getBiome(position.floored()); // Get biome ID
+    const biomeName = this.mcData.biomes[biomeId]?.name ?? 'unknown'; // Convert ID to name using mcData
 
     // Return the updated parts of the state
     return {
@@ -81,7 +85,7 @@ export class ObserveManager {
         health: this.bot.health,
         food: this.bot.food,
         timeOfDay: timeOfDay, // Added
-        biome: biome // Added
+        biome: biomeName // Use the biome name string
       }
     };
   }

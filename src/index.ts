@@ -95,7 +95,8 @@ bot.once('spawn', async () => {
 
   planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository); // Pass API key and skills
   thinkManager = new ThinkManager(planner); // Pass the planner instance
-  observeManager = new ObserveManager(bot); // Initialize ObserveManager here now that bot exists
+  // Pass mcDataInstance to ObserveManager constructor
+  observeManager = new ObserveManager(bot, mcDataInstance);
 
   if (pathfinderInitialized) {
     // Ensure observeManager is initialized before starting the loop
@@ -193,14 +194,14 @@ interface AgentState {
 }
 
 // --- Graph Nodes ---
-// observeManager is now guaranteed to be initialized before startAgentLoop is called
+// observeManager and mcDataInstance are now guaranteed to be initialized before startAgentLoop is called
 
 // Node functions now operate on the AgentState wrapper
 async function runObserveNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
   console.log("--- Running Observe Node ---");
-  if (!observeManager) {
-      console.error("ObserveManager not initialized!");
-      return { state: { ...agentState.state, lastActionResult: "Error: ObserveManager not ready." } };
+  if (!observeManager || !mcDataInstance) { // Add check for mcDataInstance too
+      console.error("ObserveManager or mcDataInstance not initialized!");
+      return { state: { ...agentState.state, lastActionResult: "Error: Core components not ready." } };
   }
   // Pass the current state from the wrapper to the original observe function
   const observationResult = await observeManager.observe(agentState.state);
@@ -318,11 +319,12 @@ workflow.addNode("observe", runObserveNodeWrapper);
 workflow.addNode("think", runThinkNodeWrapper);
 workflow.addNode("act", runActNodeWrapper);
 
-// Define edges
-workflow.setEntryPoint("observe"); // Start with observation
-workflow.addEdge("observe", "think"); // After observing, think
-workflow.addEdge("think", "act");   // After thinking, act
-workflow.addEdge("act", "observe"); // After acting, observe again (loop)
+// Define edges - Cast node names to any to bypass strict type checking for now
+// This might indicate a version mismatch or incorrect setup - investigate further if runtime issues persist
+workflow.setEntryPoint("observe" as any);
+workflow.addEdge("observe" as any, "think" as any);
+workflow.addEdge("think" as any, "act" as any);
+workflow.addEdge("act" as any, "observe" as any); // Loop back
 
 // Compile the graph
 const app = workflow.compile();
@@ -348,7 +350,9 @@ async function startAgentLoop() {
 
     // The loop continuously processes state updates from the graph stream
     // Pass the initial AgentState wrapper to the stream
-    for await (const event of app.stream({ state: currentAgentState }, streamConfig)) {
+    // Add type assertion to help TypeScript understand the stream type
+    const stream = app.stream({ state: currentAgentState }, streamConfig) as AsyncIterable<any>;
+    for await (const event of stream) {
         // The event object contains the output of the node that just ran,
         // keyed by the node name. The 'state' channel is automatically updated.
 
