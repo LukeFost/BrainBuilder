@@ -367,42 +367,50 @@ async function startNode(): Promise<Partial<State>> {
 
 
 // --- Build the Graph ---
-// Create a StateGraph instance with State as the state type and channels
-const workflow = new StateGraph<State>({
-  channels: {
-    memory: {
-      value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left, 
-      default: () => currentAgentState.memory
-    },
-    inventory: {
-      value: (left: Inventory, right?: Inventory) => right ?? left,
-      default: () => currentAgentState.inventory
-    },
-    surroundings: {
-      value: (left: Surroundings, right?: Surroundings) => right ?? left,
-      default: () => currentAgentState.surroundings
-    },
-    currentGoal: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.currentGoal
-    },
-    currentPlan: {
-      value: (left?: string[], right?: string[]) => right ?? left,
-      default: () => currentAgentState.currentPlan
-    },
-    lastAction: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.lastAction
-    },
-    lastActionResult: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.lastActionResult
-    }
-  }
+
+// Define state schema using Annotation API
+const StateAnnotation = Annotation.Root({
+  memory: Annotation<StructuredMemory>({
+    reducer: (left: StructuredMemory, right?: StructuredMemory) => right ?? left,
+    default: () => currentAgentState.memory
+  }),
+  inventory: Annotation<Inventory>({
+    reducer: (left: Inventory, right?: Inventory) => right ?? left,
+    default: () => currentAgentState.inventory
+  }),
+  surroundings: Annotation<Surroundings>({
+    reducer: (left: Surroundings, right?: Surroundings) => right ?? left,
+    default: () => currentAgentState.surroundings
+  }),
+  currentGoal: Annotation<string | undefined>({
+    reducer: (left?: string, right?: string) => right ?? left,
+    default: () => currentAgentState.currentGoal
+  }),
+  currentPlan: Annotation<string[] | undefined>({
+    reducer: (left?: string[], right?: string[]) => right ?? left,
+    default: () => currentAgentState.currentPlan
+  }),
+  lastAction: Annotation<string | undefined>({
+    reducer: (left?: string, right?: string) => right ?? left,
+    default: () => currentAgentState.lastAction
+  }),
+  lastActionResult: Annotation<string | undefined>({
+    reducer: (left?: string, right?: string) => right ?? left,
+    default: () => currentAgentState.lastActionResult
+  }),
+  // Include 'next' if it's part of the intended state, based on think.ts
+  next: Annotation<string | undefined>({
+     reducer: (left?: string, right?: string) => right ?? left,
+     default: () => undefined // Or appropriate default
+  })
 });
 
+
+// Create a StateGraph instance using the Annotation definition
+const workflow = new StateGraph(StateAnnotation);
+
 // Add nodes with proper typing
-workflow.addNode("__start__", startNode);
+// workflow.addNode("__start__", startNode); // START is implicitly handled by addEdge(START, ...)
 workflow.addNode("observe", runObserveNode);
 workflow.addNode("think", runThinkNode);
 workflow.addNode("validate", runValidateNode);
@@ -417,8 +425,26 @@ workflow.addEdge("observe", "think");
 workflow.addConditionalEdges(
   "think",
   (state: State) => {
+    // Check for the 'next' state property added in think.ts for specific routing
+    if (state.next === "wait") {
+        // If waiting for instructions, potentially loop back or end
+        // For now, let's assume it should end if askForHelp was the last action
+        if (state.lastAction?.includes("askForHelp")) {
+             return END;
+        }
+        // If not asking for help but waiting, maybe observe again? Or just validate?
+        // Let's stick to the original logic for now if not asking for help.
+    }
     if (state.lastAction?.includes("askForHelp") && state.currentGoal === "Waiting for instructions") {
       return END; // Use END constant
+    }
+    // Add check for 'explore' state from think.ts
+    if (state.next === "explore") {
+        // If exploring, maybe go back to observe after moving?
+        // The plan set in think.ts is ['moveToPosition ...', 'lookAround']
+        // The act node executes the first step. Let's route to observe after act.
+        // This requires modifying the edge from resultAnalysis
+        // Let's keep the original logic here and adjust edges later if needed.
     }
     return "validate";
   },
