@@ -266,24 +266,24 @@ async function runThinkNodeWrapper(agentState: AgentState): Promise<{ state: Sta
   return { state: newState }; // Update return statement
 }
 
-async function runValidateNodeWrapper(agentState: AgentState): Promise<Partial<AgentState>> {
+async function runValidateNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
   console.log("--- Running Validate Node ---");
+  let newState: State;
   try {
     // Pass the current state from the wrapper to the validate function
     const validateResult = await validateManager.validate(agentState.state);
     // Merge the validation result back into the state within the wrapper
-    const newState = { ...agentState.state, ...validateResult };
-    return { state: newState };
+    newState = { ...agentState.state, ...validateResult };
   } catch (error: unknown) {
     console.error('[ValidateNode] Error during validation process:', error);
     // Update the state within the wrapper on error
-    const newState = { 
-      ...agentState.state, 
+    newState = {
+      ...agentState.state,
       lastAction: 'askForHelp',
       lastActionResult: 'An internal error occurred during validation.'
     };
-    return { state: newState };
   }
+  return { state: newState }; // Update return statement
 }
 
 async function runActNodeWrapper(agentState: AgentState): Promise<{ state: State }> { // Update return type
@@ -371,18 +371,17 @@ async function runResultAnalysisNodeWrapper(agentState: AgentState): Promise<{ s
     // Pass the current state from the wrapper to the result analysis function
     const analysisResult = await resultAnalysisManager.analyze(agentState.state);
     // Merge the analysis result back into the state within the wrapper
-    const newState = { ...agentState.state, ...analysisResult };
-    return { state: newState };
+    newState = { ...agentState.state, ...analysisResult };
   } catch (error: unknown) {
     console.error('[ResultAnalysisNode] Error during result analysis process:', error);
     // Update the state within the wrapper on error
-    const newState = { 
-      ...agentState.state, 
+    newState = {
+      ...agentState.state,
       lastAction: 'askForHelp',
       lastActionResult: 'An internal error occurred during result analysis.'
     };
-    return { state: newState };
   }
+  return { state: newState }; // Update return statement
 }
 
 
