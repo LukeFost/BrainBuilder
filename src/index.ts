@@ -387,37 +387,49 @@ async function startNode(): Promise<AgentNode> {
 type AgentNode = "observe" | "think" | "validate" | "act" | "resultAnalysis" | "__start__";
 
 // Use State directly as the graph's state type
-const workflow = new StateGraph({
-  channels: {
-    memory: {
-      value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left,
-      default: () => currentAgentState.memory
-    },
-    inventory: {
-      value: (left: Inventory, right?: Inventory) => right ?? left,
-      default: () => currentAgentState.inventory
-    },
-    surroundings: {
-      value: (left: Surroundings, right?: Surroundings) => right ?? left,
-      default: () => currentAgentState.surroundings
-    },
-    currentGoal: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.currentGoal
-    },
-    currentPlan: {
-      value: (left?: string[], right?: string[]) => right ?? left,
-      default: () => currentAgentState.currentPlan
-    },
-    lastAction: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.lastAction
-    },
-    lastActionResult: {
-      value: (left?: string, right?: string) => right ?? left,
-      default: () => currentAgentState.lastActionResult
-    }
-  }
+const workflow = new StateGraph<State, Partial<State>, AgentNode>({});
+
+// Define state channels
+workflow.addChannel({
+  name: "memory",
+  value: (left: StructuredMemory, right?: StructuredMemory) => right ?? left,
+  default: () => currentAgentState.memory
+});
+
+workflow.addChannel({
+  name: "inventory",
+  value: (left: Inventory, right?: Inventory) => right ?? left,
+  default: () => currentAgentState.inventory
+});
+
+workflow.addChannel({
+  name: "surroundings",
+  value: (left: Surroundings, right?: Surroundings) => right ?? left,
+  default: () => currentAgentState.surroundings
+});
+
+workflow.addChannel({
+  name: "currentGoal",
+  value: (left?: string, right?: string) => right ?? left,
+  default: () => currentAgentState.currentGoal
+});
+
+workflow.addChannel({
+  name: "currentPlan",
+  value: (left?: string[], right?: string[]) => right ?? left,
+  default: () => currentAgentState.currentPlan
+});
+
+workflow.addChannel({
+  name: "lastAction",
+  value: (left?: string, right?: string) => right ?? left,
+  default: () => currentAgentState.lastAction
+});
+
+workflow.addChannel({
+  name: "lastActionResult",
+  value: (left?: string, right?: string) => right ?? left,
+  default: () => currentAgentState.lastActionResult
 });
 
 // Add nodes directly with the functions
@@ -432,33 +444,18 @@ workflow.addNode("resultAnalysis", runResultAnalysisNode);
 workflow.setEntryPoint("__start__");
 
 // Add edges with the correct format
-workflow.addEdge({
-  source: "__start__",
-  target: "observe"
-});
+workflow.addEdge("__start__", "observe");
 
-workflow.addEdge({
-  source: "observe", 
-  target: "think"
-});
+workflow.addEdge("observe", "think");
 
 // The conditional logic is now inside the think node
 // No need for addConditionalEdges here
 
-workflow.addEdge({
-  source: "validate",
-  target: "act"
-});
+workflow.addEdge("validate", "act");
 
-workflow.addEdge({
-  source: "act",
-  target: "resultAnalysis"
-});
+workflow.addEdge("act", "resultAnalysis");
 
-workflow.addEdge({
-  source: "resultAnalysis",
-  target: "observe"
-});
+workflow.addEdge("resultAnalysis", "observe");
 
 // Compile the graph
 const app = workflow.compile();
@@ -474,7 +471,7 @@ async function startAgentLoop() {
     // --- Initial observation (remains outside the loop) ---
     console.log("--- Initial Observation ---");
     // Use the wrapper node function directly with the current State
-    const initialObservationUpdate = await runObserveNodeWrapper(currentAgentState);
+    const initialObservationUpdate = await runObserveNode(currentAgentState);
     // Merge the initial observation update into the current state
     currentAgentState = { ...currentAgentState, ...initialObservationUpdate };
     // Check if the update contained an error message (simple check)
