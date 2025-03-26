@@ -89,7 +89,8 @@ bot.once('spawn', async () => {
   }
 
   // Initialize components requiring await or bot instance here
-  skillRepository = new SkillRepository(); // Use default filename 'skills_library.json'
+  // Explicitly pass the filename string to the constructor
+  skillRepository = new SkillRepository('skills_library.json');
   await skillRepository.loadSkills(); // Load skills from the file
 
   planner = new Planner(process.env.OPENAI_API_KEY || '', skillRepository); // Pass API key and skills
