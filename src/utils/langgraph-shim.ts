@@ -1,5 +1,8 @@
-// --- LangGraph Shim (Remove when SDK exports these) ---
-// Define your own StateGraph and END until the langgraph-sdk exports them
+import { Client } from "@langchain/langgraph-sdk";
+
+/**
+ * A simplified implementation of StateGraph for use until the langgraph-sdk exports it
+ */
 export class StateGraph<T> {
   channels: Record<string, { value: any }>;
   nodes: Map<string, (state: T) => Promise<Partial<T>>>;
@@ -54,7 +57,7 @@ export class StateGraph<T> {
                 yield { [currentNode]: result };
                 
                 const nextNodes = graph.edges.get(currentNode) || [];
-                currentNode = nextNodes[0] || null; // Simple sequential execution for shim
+                currentNode = nextNodes[0] || null;
               }
             })();
           }
@@ -64,4 +67,7 @@ export class StateGraph<T> {
   }
 }
 
-export const END = "end"; // Placeholder for LangGraph's END sentinel
+/**
+ * Special constant to indicate the end of a graph execution
+ */
+export const END = "end";
