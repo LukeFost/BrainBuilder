@@ -1,22 +1,26 @@
 // Node Built-ins (None used directly here, but good practice)
 
+// Node Built-ins (Add as needed, e.g., import * as path from 'path';)
+
 // External Libraries
 import * as mineflayer from 'mineflayer';
 import * as dotenv from 'dotenv';
 import * as mcDataModule from 'minecraft-data';
 import * as pathfinder from 'mineflayer-pathfinder';
-import { BaseMessage } from "@langchain/core/messages"; // Keep for potential future use
+// Removed: import { BaseMessage } from "@langchain/core/messages"; // Not used
 
 // Local Modules & Types
 import { State } from './agent/types';
 import { MemoryManager } from './agent/memory';
 import { ThinkManager } from './agent/think';
 import { ObserveManager } from './agent/observe';
-import { actions } from './agent/actions/index'; // Assuming actions are correctly exported from index
+import { actions } from './agent/actions/index';
+import { StateGraph, END } from './utils/langgraph-shim'; // Import the shim
 
 // --- Constants ---
 const DEFAULT_GOAL = 'Collect wood and build a small shelter';
 const RECURSION_LIMIT = 150; // Max steps before the graph stops itself
+// const MEMORY_FILE = 'agent_memory.json'; // Example constant if needed
 
 // --- Utility Functions ---
 
@@ -36,74 +40,6 @@ const mcData = (version: string) => {
   }
 };
 
-
-// --- LangGraph Shim (Remove when SDK exports these) ---
-// Define your own StateGraph and END until the langgraph-sdk exports them
-class StateGraph<T> {
-  channels: Record<string, { value: any }>;
-  nodes: Map<string, (state: T) => Promise<Partial<T>>>;
-  edges: Map<string, string[]>;
-  entryPoint: string | null;
-
-  constructor(options: { channels: Record<string, { value: any }> }) {
-    this.channels = options.channels;
-    this.nodes = new Map();
-    this.edges = new Map();
-    this.entryPoint = null;
-  }
-
-  addNode(name: string, fn: (state: T) => Promise<Partial<T>>) {
-    this.nodes.set(name, fn);
-    return this;
-  }
-
-  setEntryPoint(name: string) {
-    this.entryPoint = name;
-    return this;
-  }
-
-  addEdge(from: string, to: string) {
-    if (!this.edges.has(from)) {
-      this.edges.set(from, []);
-    }
-    this.edges.get(from)!.push(to);
-    return this;
-  }
-
-  compile() {
-    return {
-      stream: (initialState: T, options?: { recursionLimit?: number }) => {
-        const limit = options?.recursionLimit || 100;
-        let currentNode = this.entryPoint;
-        let state = { ...initialState };
-        const graph = this;
-        
-        return {
-          [Symbol.asyncIterator]() {
-            return (async function* () {
-              for (let i = 0; i < limit; i++) {
-                if (!currentNode) break;
-                
-                const nodeFn = graph.nodes.get(currentNode);
-                if (!nodeFn) break;
-                
-                const result = await nodeFn(state);
-                state = { ...state, ...result };
-                
-                yield { [currentNode]: result };
-                
-                const nextNodes = graph.edges.get(currentNode) || [];
-                currentNode = nextNodes[0] || null;
-              }
-            })();
-          }
-        };
-      }
-    };
-  }
-}
-
-const END = "end"; // Placeholder for LangGraph's END sentinel
 
 // --- Configuration & Initialization ---
 
@@ -125,27 +61,27 @@ const bot = mineflayer.createBot(botConfig);
 // Initialize core agent components
 const memoryManager = new MemoryManager(undefined, 10, process.env.OPENAI_API_KEY);
 const thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || '');
-let observeManager: ObserveManager | null = null; // Initialize later in observeNode
+const observeManager = new ObserveManager(bot); // Initialize here
 
 // Define the LangGraph state object structure using our existing State interface
 type GraphState = State;
 
-// --- Global State for Initialization and Chat Commands ---
-// This object holds the initial state and is updated by chat commands.
-// The observeNode reads the currentGoal from here each cycle.
-const initialAppState: State = {
+// --- Agent Configuration & Status Tracking ---
+// This object holds configuration (like goal) and tracks status for chat commands.
+// It is updated by chat commands and read/updated by graph nodes for reporting consistency.
+const agentConfig: State = { // Renamed from initialAppState
   memory: memoryManager.fullMemory, // Start with memory from manager
-  inventory: { items: {} }, // Start empty, observeNode will populate
-  surroundings: { // Start empty, observeNode will populate
+  inventory: { items: {} }, // Populated by initial observe, used for chat status
+  surroundings: { // Populated by initial observe, used for chat status
     nearbyBlocks: [],
     nearbyEntities: [],
     position: { x: 0, y: 0, z: 0 },
-    // Health/Food will be populated by observeNode
+    // Health/Food will be populated by initial observe
   },
   currentGoal: DEFAULT_GOAL,
-  currentPlan: undefined, // Start with no plan
-  lastAction: undefined,
-  lastActionResult: undefined,
+  currentPlan: undefined, // Tracks the plan for status reporting
+  lastAction: undefined, // Tracks last action for status reporting
+  lastActionResult: undefined, // Tracks last result for status reporting
 };
 
 
@@ -183,8 +119,8 @@ bot.once('spawn', async () => {
 });
 
 // --- Chat Command Handling ---
-// Updates the global `initialAppState` which is then read by `observeNode`.
-bot.on('chat', (username, message) => {
+
+function handleChatMessage(username: string, message: string) {
   // Ignore messages from the bot itself
   if (username === bot.username) return;
 
@@ -192,45 +128,53 @@ bot.on('chat', (username, message) => {
 
   // Simple command parsing
   const command = message.toLowerCase().trim();
-  const args = message.trim().split(' ').slice(1);
+  // Handle commands with arguments more robustly
+  const parts = message.trim().split(' ');
+  const cmdBase = parts[0]?.toLowerCase(); // e.g., 'goal'
+  const args = parts.slice(1); // e.g., ['build', 'a', 'house']
 
-  if (command.startsWith('goal ')) {
+  if (cmdBase === 'goal') {
     const newGoal = args.join(' ').trim();
     if (newGoal) {
-      initialAppState.currentGoal = newGoal;
-      initialAppState.currentPlan = undefined; // Clear plan to force replanning
+      agentConfig.currentGoal = newGoal; // Update config
+      agentConfig.currentPlan = undefined; // Clear plan in config
+      // NOTE: The graph will pick up the new goal in the next observeNode run.
       bot.chat(`Okay, new goal set: ${newGoal}`);
-      memoryManager.addToShortTerm(`Player ${username} set a new goal: ${newGoal}`);
-      console.log(`[Chat] Global goal updated by ${username}: ${newGoal}`);
+      memoryManager.addToShortTerm(`Player ${username} set a new goal: ${newGoal}`); // Keep adding to memory
+      console.log(`[Chat] Agent goal updated by ${username}: ${newGoal}`);
     } else {
       bot.chat("Please provide a goal description after 'goal ' (e.g., 'goal build a house').");
     }
-  } else if (command === 'status') {
-    // Report status based on the global state (might be slightly behind graph state but good enough for chat)
-    const status = `Goal: ${initialAppState.currentGoal || 'None'} | Plan Step: ${initialAppState.currentPlan?.[0] || 'N/A'} | Last Action: ${initialAppState.lastAction || 'None'} | Last Result: ${initialAppState.lastActionResult || 'None'}`;
+  } else if (cmdBase === 'status') {
+    // Report status based on the agentConfig (might be slightly behind graph state but good enough for chat)
+    const status = `Goal: ${agentConfig.currentGoal || 'None'} | Plan Step: ${agentConfig.currentPlan?.[0] || 'N/A'} | Last Action: ${agentConfig.lastAction || 'None'} | Last Result: ${agentConfig.lastActionResult || 'None'}`;
     bot.chat(status);
     console.log(`[Chat] Sending status to ${username}.`);
-  } else if (command === 'memory') {
+  } else if (cmdBase === 'memory') {
     bot.chat(`Short-term memory (last 5): ${memoryManager.shortTerm.slice(-5).join(' | ')}`);
-    // Avoid showing potentially large long-term memory in chat
     bot.chat(`Long-term memory summary is tracked internally.`);
-  } else if (command === 'inventory') {
-    // Use the global state's inventory for quick reporting
-    const items = Object.entries(initialAppState.inventory.items)
-      .filter(([, count]) => count > 0) // Only show items with count > 0
+  } else if (cmdBase === 'inventory') {
+    // Use the agentConfig's inventory for quick reporting (populated by initial observe)
+    const items = Object.entries(agentConfig.inventory.items)
+      .filter(([, count]) => count > 0)
       .map(([item, count]) => `${item}: ${count}`)
       .join(', ');
     bot.chat(`Inventory (from state): ${items || 'Empty'}`);
-  } else if (command === 'help') {
+  } else if (cmdBase === 'help') {
     bot.chat(`Available commands: goal <text>, status, memory, inventory, help, explore`);
-  } else if (command === 'explore') {
-    initialAppState.currentGoal = 'Explore the surroundings and gather information';
-    initialAppState.currentPlan = undefined; // Force replan for exploration
+  } else if (cmdBase === 'explore') {
+    agentConfig.currentGoal = 'Explore the surroundings and gather information'; // Update config
+    agentConfig.currentPlan = undefined; // Clear plan in config
     bot.chat('Okay, switching to exploration mode.');
     memoryManager.addToShortTerm(`Player ${username} requested exploration mode`);
-    console.log(`[Chat] Global goal updated by ${username}: Explore`);
+    console.log(`[Chat] Agent goal updated by ${username}: Explore`);
   }
-  // Removed 'stop' and 'follow' as they weren't implemented and require graph interaction
+  // Removed 'stop' and 'follow' as they weren't implemented
+}
+
+// Update the bot.on('chat') handler
+bot.on('chat', (username, message) => {
+  handleChatMessage(username, message);
 });
 
 bot.on('kicked', (reason) => console.warn('Bot was kicked from server:', reason));
@@ -244,26 +188,21 @@ bot.on('end', (reason) => console.log('Bot disconnected:', reason)); // Handle d
 async function observeNode(currentState: GraphState): Promise<Partial<GraphState>> {
   console.log("--- Running Observe Node ---");
 
-  // Initialize ObserveManager on first run
-  if (!observeManager) {
-    observeManager = new ObserveManager(bot);
-  }
+  // ObserveManager is now initialized globally
 
   try {
     // Get observations from the manager
     const observationResult = await observeManager.observe(currentState);
 
-    // Merge observations, fresh memory, and the current goal from the global state
+    // Merge observations, fresh memory, and the current goal from agentConfig
     const updatedState: Partial<GraphState> = {
       ...observationResult,
       memory: memoryManager.fullMemory, // Ensure memory is up-to-date
-      currentGoal: initialAppState.currentGoal // ** Crucial: Read goal from global state **
+      currentGoal: agentConfig.currentGoal // ** Read goal from agentConfig **
     };
 
-    // Update the global state's inventory/surroundings for chat commands like 'status'/'inventory'
-    // This keeps the chat commands somewhat synchronized without directly manipulating graph state.
-    if (updatedState.inventory) initialAppState.inventory = updatedState.inventory;
-    if (updatedState.surroundings) initialAppState.surroundings = updatedState.surroundings;
+    // DO NOT update agentConfig inventory/surroundings here.
+    // Initial population happens in startAgentLoop, chat commands read from there.
 
     return updatedState;
   } catch (error: any) {
@@ -271,7 +210,7 @@ async function observeNode(currentState: GraphState): Promise<Partial<GraphState
     // Return minimal state update on error to allow graph to potentially recover
     return {
         memory: memoryManager.fullMemory,
-        currentGoal: initialAppState.currentGoal, // Still provide goal
+        currentGoal: agentConfig.currentGoal, // Still provide goal from agentConfig
         lastActionResult: `Observation failed: ${error.message || error}` // Report failure
     };
   }
@@ -285,17 +224,17 @@ async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>>
     // Delegate all thinking logic to the ThinkManager
     const thinkResult = await thinkManager.think(currentState);
 
-    // Update global state for status reporting consistency
-    if (thinkResult.lastAction) initialAppState.lastAction = thinkResult.lastAction;
-    if (thinkResult.currentPlan !== undefined) initialAppState.currentPlan = thinkResult.currentPlan; // Update if plan changes
+    // Update agentConfig for status reporting consistency
+    if (thinkResult.lastAction) agentConfig.lastAction = thinkResult.lastAction;
+    if (thinkResult.currentPlan !== undefined) agentConfig.currentPlan = thinkResult.currentPlan; // Update if plan changes
 
-    return thinkResult;
+    return thinkResult; // Return the result to update graph state
   } catch (error: any) { // Explicitly type error
     console.error('[ThinkNode] Error during thinking process:', error.message || error);
     const fallbackAction = 'askForHelp An internal error occurred during thinking.';
-    initialAppState.lastAction = fallbackAction; // Update global state
-    initialAppState.currentPlan = [fallbackAction]; // Set plan to fallback
-    return { lastAction: fallbackAction, currentPlan: [fallbackAction] };
+    agentConfig.lastAction = fallbackAction; // Update agentConfig
+    agentConfig.currentPlan = [fallbackAction]; // Update agentConfig
+    return { lastAction: fallbackAction, currentPlan: [fallbackAction] }; // Return update for graph state
   }
 }
 
@@ -308,8 +247,8 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
   if (!actionToPerform) {
     console.log("[ActNode] No action decided. Skipping act node.");
     const result = "No action to perform";
-    initialAppState.lastActionResult = result; // Update global state
-    return { lastActionResult: result };
+    agentConfig.lastActionResult = result; // Update agentConfig
+    return { lastActionResult: result }; // Return update for graph state
   }
 
   // Basic argument parsing (handles spaces in quoted arguments)
@@ -364,14 +303,14 @@ async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
       // ThinkManager will handle replanning based on the failure result in the next cycle.
   }
 
-  // Update global state for status reporting consistency
-  initialAppState.lastActionResult = result;
-  initialAppState.currentPlan = updatedPlan; // Keep global plan sync'd
+  // Update agentConfig for status reporting consistency
+  agentConfig.lastActionResult = result;
+  agentConfig.currentPlan = updatedPlan; // Keep agentConfig plan sync'd
 
   return {
     lastActionResult: result,
-    currentPlan: updatedPlan, // Return potentially updated plan
-    memory: memoryManager.fullMemory // Return updated memory state
+    currentPlan: updatedPlan, // Return potentially updated plan for graph state
+    memory: memoryManager.fullMemory // Return updated memory state for graph state
   };
 }
 
@@ -413,26 +352,34 @@ async function startAgentLoop() {
 
   try {
     // Prepare the absolute initial state for the graph's first run.
-    // Run observeNode once manually BEFORE the loop to get initial sensor data.
-    // Pass a minimal state object, observeNode will populate it.
-    const initialSensorData = await observeNode({
-        memory: initialAppState.memory, // Provide initial memory
-        inventory: initialAppState.inventory,
-        surroundings: initialAppState.surroundings,
-        currentGoal: initialAppState.currentGoal // Provide initial goal
+    // Run observe once manually BEFORE the loop to get initial sensor data.
+    // Pass a minimal state object reflecting agentConfig structure.
+    const initialObservationState: Partial<GraphState> = {
+        memory: agentConfig.memory, // Provide initial memory from config
+        inventory: agentConfig.inventory, // Provide structure
+        surroundings: agentConfig.surroundings, // Provide structure
+        currentGoal: agentConfig.currentGoal // Provide initial goal from config
         // Plan, lastAction, lastActionResult start undefined
-    });
+    };
+    // Use observeManager directly for initial observation
+    const initialSensorData = await observeManager.observe(initialObservationState as GraphState);
 
-    // Merge the initial sensor data with the rest of the initialAppState (like goal)
+    // Merge the initial sensor data back into agentConfig for chat commands
+    // and create the true initial state for the graph run.
+    agentConfig.inventory = initialSensorData.inventory ?? agentConfig.inventory;
+    agentConfig.surroundings = initialSensorData.surroundings ?? agentConfig.surroundings;
+    // Health/Food are now within agentConfig.surroundings if observed
+
     const graphInitialRunState: GraphState = {
-        ...initialAppState, // Includes goal, initial memory etc.
-        ...initialSensorData // Overwrites/adds initial inventory, surroundings, position, health, food
+        ...agentConfig, // Includes goal, initial memory, potentially updated inv/surroundings
+        ...initialSensorData, // Ensure latest observed data overwrites defaults
+        memory: memoryManager.fullMemory // Ensure memory is absolutely fresh for the graph start
     };
 
     console.log("Graph Initial Run State:", graphInitialRunState);
 
     // Stream the graph execution from the initial state
-    const stream = app.stream(graphInitialRunState, {
+    const stream = app.stream(graphInitialRunState, { // Use the fully prepared state
         recursionLimit: RECURSION_LIMIT
     });
 
@@ -475,304 +422,3 @@ async function startAgentLoop() {
 // --- Main Execution ---
 // The bot.once('spawn', ...) handler above will call startAgentLoop()
 // No further explicit call is needed here.
-// we might switch to MessagesState or a custom class extending it.
-type GraphState = State;
-
-// Load environment variables
-dotenv.config();
-
-// Bot configuration
-const botConfig = {
-  host: 'localhost', // or your LAN IP address
-  port: parseInt(process.env.MINECRAFT_PORT || '25565'), // LAN port from Minecraft
-  username: 'AIBot',
-  version: '1.21.1', // Updated to match your LAN world version
-  auth: 'offline' as 'offline' // Type assertion to fix type error
-};
-
-// Create bot
-const bot = mineflayer.createBot(botConfig);
-const memoryManager = new MemoryManager(undefined, 10, process.env.OPENAI_API_KEY);
-// REMOVE: const planner = new Planner(process.env.OPENAI_API_KEY || ''); // Planner is now inside ThinkManager
-// REMOVE: const critic = new Critic();
-const thinkManager = new ThinkManager(process.env.OPENAI_API_KEY || ''); // Instantiate ThinkManager directly
-
-// Define initial state
-const state: State = {
-  memory: memoryManager.fullMemory,
-  inventory: { items: {} },
-  surroundings: {
-    nearbyBlocks: [],
-    nearbyEntities: [],
-    position: { x: 0, y: 0, z: 0 }
-  },
-  currentGoal: 'Collect wood and build a small shelter'
-};
-
-// Bot event handlers
-bot.once('spawn', async () => { // Add async here
-  console.log('Bot has spawned');
-
-  // Memory manager is initialized in its constructor now
-  console.log("MemoryManager created.");
-
-  let pathfinderInitialized = false;
-  try {
-    // Initialize pathfinder plugin
-    bot.loadPlugin(pathfinder.pathfinder);
-    const mcDataInstance = mcData(bot.version as string);
-    const defaultMove = new pathfinder.Movements(bot);
-    // Configure movements (optional, customize as needed)
-    defaultMove.allowSprinting = true;
-    defaultMove.canDig = true; // Allow breaking blocks if necessary for pathing
-    bot.pathfinder.setMovements(defaultMove);
-    console.log('Pathfinder initialized successfully.');
-    pathfinderInitialized = true;
-  } catch (error) {
-    console.error('CRITICAL: Error initializing pathfinder plugin:', error);
-    console.error('Movement capabilities will be severely limited or non-functional.');
-    // Optional: Decide if the bot should stop or continue with limited function
-    // For now, we'll let it continue but log the error clearly.
-  }
-  
-  // Start the agent loop only if critical components like pathfinder are ready (or handle failure)
-  if (pathfinderInitialized) {
-    startAgentLoop();
-  } else {
-    console.error("Agent loop not started due to pathfinder initialization failure.");
-    bot.chat("I cannot move properly. Pathfinder failed to load.");
-  }
-});
-
-// --- Chat Command Handling ---
-// Keep the existing bot.on('chat', ...) handler as is for now.
-// We might integrate some commands into the graph later if needed.
-bot.on('chat', (username, message) => {
-  // Handle commands from chat
-  console.log(`[Chat] Received message from ${username}: "${message}"`); 
-  if (username === bot.username) return;
-  
-  console.log(`[Chat] Processing command from ${username}.`);
-  if (message.startsWith('goal ')) {
-    const newGoal = message.slice(5);
-    state.currentGoal = newGoal;
-    state.currentPlan = undefined;
-    bot.chat(`New goal set: ${newGoal}`);
-    memoryManager.addToShortTerm(`Player ${username} set a new goal: ${newGoal}`);
-    console.log(`[Chat] New goal set by ${username}: ${newGoal}`);
-  } else if (message === 'status') {
-    const status = `Goal: ${state.currentGoal || 'None'}\nPlan: ${state.currentPlan?.join(', ') || 'None'}\nLast action: ${state.lastAction || 'None'}\nResult: ${state.lastActionResult || 'None'}`;
-    bot.chat(status);
-    console.log(`[Chat] Sending status to ${username}.`);
-  } else if (message === 'memory') {
-    bot.chat(`Short-term memory: ${memoryManager.shortTerm.join(', ')}`);
-    bot.chat(`Long-term memory summary available`);
-  } else if (message === 'inventory') {
-    const items = Object.entries(state.inventory.items)
-      .map(([item, count]) => `${item}: ${count}`)
-      .join(', ');
-    bot.chat(`Inventory: ${items || 'Empty'}`);
-  } else if (message === 'help') {
-    bot.chat(`
-Available commands:
-- goal <text>: Set a new goal
-- status: Show current status
-- memory: Show memory contents
-- inventory: Show inventory
-- help: Show this help message
-- stop: Stop current activity
-- explore: Force exploration mode
-    `);
-  } else if (message === 'stop') {
-    // Could implement a way to stop current activities
-    bot.chat('Stopping current activity');
-    memoryManager.addToShortTerm(`Player ${username} requested to stop current activity`);
-  } else if (message === 'explore') {
-    state.currentGoal = 'Explore the surroundings and gather information';
-    state.currentPlan = undefined;
-    bot.chat('Switching to exploration mode');
-    memoryManager.addToShortTerm(`Player ${username} requested exploration mode`);
-  } else if (message.startsWith('follow ')) {
-    const targetName = message.slice(7);
-    bot.chat(`Following ${targetName}`);
-    // Could implement follow functionality
-  }
-});
-
-bot.on('kicked', console.log);
-bot.on('error', console.log);
-
-
-// --- Graph Nodes ---
-
-
-// Create an instance of ObserveManager
-let observeManager: ObserveManager | null = null;
-
-// Observe Node: Gathers information about the environment and updates the state.
-async function observeNode(currentState: GraphState): Promise<Partial<GraphState>> {
-  console.log("--- Running Observe Node ---");
-  
-  // Create ObserveManager instance if not already created
-  if (!observeManager) {
-    observeManager = new ObserveManager(bot);
-  }
-  
-  // Use the ObserveManager to handle the observation process
-  const observationResult = await observeManager.observe(currentState);
-  
-  // Merge with memory
-  return {
-    ...observationResult,
-    memory: memoryManager.fullMemory // Ensure memory is fresh
-  };
-}
-
-
-// Think Node: Uses the ThinkManager to decide the next action or replan.
-async function thinkNode(currentState: GraphState): Promise<Partial<GraphState>> {
-  console.log("--- Running Think Node ---");
-  // Delegate all thinking logic to the ThinkManager
-  try {
-      // ThinkManager now returns the necessary state updates (lastAction, potentially currentPlan)
-      return await thinkManager.think(currentState);
-  } catch (error) {
-      console.error('[ThinkNode] Error during thinking process:', error);
-      // Fallback action if think manager fails unexpectedly
-      return { lastAction: 'askForHelp An internal error occurred during thinking.' };
-  }
-}
-
-
-// Act Node: Executes the action decided by the 'think' node.
-// (Keep the existing actNode implementation, ensuring it correctly updates
-// the plan state after successful execution)
-async function actNode(currentState: GraphState): Promise<Partial<GraphState>> {
-  console.log("--- Running Act Node ---");
-  const actionToPerform = currentState.lastAction;
-
-  if (!actionToPerform) {
-    console.log("[ActNode] No action decided. Skipping act node.");
-    return { lastActionResult: "No action to perform" };
-  }
-
-  const parts = actionToPerform.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-  const actionName = parts[0];
-  const args = parts.slice(1).map(arg => arg.replace(/^"|"$/g, ''));
-
-  let result: string;
-  let executionSuccess = false; // Track if execution itself succeeded
-
-  if (actionName && actions[actionName]) {
-    try {
-      console.log(`[ActNode] Executing action: ${actionName} with args: ${args.join(', ')}`);
-      result = await actions[actionName].execute(bot, args, currentState);
-      executionSuccess = !result.toLowerCase().includes('fail') && !result.toLowerCase().includes('error'); // Basic success check
-      console.log(`[ActNode] Action Result: ${result}`);
-    } catch (error: any) {
-      result = `Failed to execute ${actionName}: ${error.message || error}`;
-      console.error(`[ActNode] ${result}`);
-      executionSuccess = false;
-    }
-  } else {
-    result = `Unknown action: ${actionName}`;
-    console.error(`[ActNode] ${result}`);
-    executionSuccess = false;
-  }
-
-  // Update memory (always update with the result)
-  await memoryManager.addToShortTerm(`Action: ${actionToPerform} -> Result: ${result}`);
-
-  let updatedPlan = currentState.currentPlan;
-
-  // Advance the plan ONLY if the execution was successful AND it matched the plan
-  if (executionSuccess && currentState.currentPlan && currentState.currentPlan.length > 0) {
-    // Clean the current plan step for comparison (remove numbering, trim)
-    const currentPlanStepClean = currentState.currentPlan[0].replace(/^\d+\.\s*/, '').trim();
-
-    if (actionToPerform === currentPlanStepClean) {
-      console.log(`[ActNode] Completed plan step: ${currentState.currentPlan[0]}`);
-      updatedPlan = currentState.currentPlan.slice(1);
-    } else {
-      console.warn(`[ActNode] Executed action "${actionToPerform}" succeeded but did not match planned step "${currentState.currentPlan[0]}". Plan might be outdated.`);
-      // Let ThinkManager decide if replanning is needed based on this state.
-    }
-  } else if (!executionSuccess && currentState.currentPlan && currentState.currentPlan.length > 0) {
-      console.log(`[ActNode] Action "${actionToPerform}" failed. Plan step "${currentState.currentPlan[0]}" not completed.`);
-      // ThinkManager will handle replanning based on the failure result.
-  }
-
-
-  return {
-    lastActionResult: result,
-    currentPlan: updatedPlan, // Return potentially updated plan
-    memory: memoryManager.fullMemory // Return updated memory state
-  };
-}
-
-
-// --- Graph Definition ---
-const workflow = new StateGraph<GraphState>({
-  channels: {
-    // Define the structure of the state object channels
-    memory: { value: null },
-    inventory: { value: null },
-    surroundings: { value: null },
-    currentGoal: { value: null },
-    currentPlan: { value: null },
-    lastAction: { value: null },
-    lastActionResult: { value: null },
-    next: { value: null }, // Used for routing, might not be strictly needed for simple loop
-  }
-});
-
-// Add nodes
-workflow.addNode("observe", observeNode);
-workflow.addNode("think", thinkNode);
-workflow.addNode("act", actNode);
-
-// Define edges
-workflow.setEntryPoint("observe"); // Start with observing
-workflow.addEdge("observe", "think"); // After observing, think
-workflow.addEdge("think", "act"); // After thinking, act
-workflow.addEdge("act", "observe"); // After acting, observe again (loop)
-
-// Compile the graph
-const app = workflow.compile();
-
-
-// --- Agent Loop ---
-async function startAgentLoop() {
-  console.log('Starting agent loop using LangGraph');
-
-  try {
-    // Initial state setup before starting the loop
-    // We use the global `state` object as the initial input.
-    // Ensure observe runs first to populate initial surroundings etc.
-    const initialState = await observeNode(state); // Run observe once to get initial data
-    const fullInitialState = { ...state, ...initialState }; // Merge with existing state (like goal)
-
-    console.log("Initial State:", fullInitialState);
-
-    // Stream the graph execution
-    const stream = app.stream(fullInitialState, {
-        // recursionLimit: 100 // Optional: Set recursion limit
-    });
-
-    for await (const step of stream) {
-        // Log the output of each node step
-        const nodeName = Object.keys(step)[0];
-        console.log(`--- Finished Node: ${nodeName} ---`);
-        console.log("Output:", step[nodeName]);
-        console.log('---------------------');
-
-        // Optional: Add a delay between cycles if needed
-        // await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-
-    console.log("Agent loop finished or stopped.");
-
-  } catch (error) {
-    console.error('Error running LangGraph agent loop:', error);
-  }
-}
