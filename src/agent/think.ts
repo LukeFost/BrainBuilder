@@ -1,7 +1,7 @@
 // Add RecentActionEntry to this import
 import { State, RecentActionEntry } from './types';
 import { Planner } from './planner'; // Keep this import
-import { MemoryManager } from '../memory'; // Import MemoryManager
+import { MemoryManager } from './memory'; // Correct import path
 
 export class ThinkManager {
   private planner: Planner; // Planner instance will be passed in

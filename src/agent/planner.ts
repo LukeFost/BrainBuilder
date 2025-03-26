@@ -3,6 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { State, Action, RecentActionEntry } from './types';
 import { SkillRepository, Skill } from './skills/skillRepository';
 import { actions } from './actions/index';
+import { MemoryManager } from './memory'; // Import MemoryManager
 
 export class Planner {
   private model: ChatOpenAI;
