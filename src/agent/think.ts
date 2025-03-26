@@ -26,8 +26,8 @@ export class ThinkManager {
     
     // Special handling for "Waiting for instructions" state
     if (currentState.currentGoal === 'Waiting for instructions') {
-      // If we've already asked for help multiple times, do something else to break the loop
-      const recentActions = currentState.memory.shortTerm.slice(-5);
+      // If we've already asked for help multiple times, do something more interesting
+      const recentActions = currentState.memory.shortTerm.slice(-10);
       const askForHelpCount = recentActions.filter(action => 
         action.includes('askForHelp') && 
         (action.includes('What would you like me to do next?') || 
@@ -35,17 +35,27 @@ export class ThinkManager {
       ).length;
       
       if (askForHelpCount >= 2) {
-        // Do something different to break the loop - explore or just wait
+        // Do something more interesting - explore the world
         console.log("[ThinkManager] Breaking help request loop with exploration");
+        
+        // Generate a random position to explore
+        const currentPos = currentState.surroundings.position;
+        const randomOffset = Math.floor(Math.random() * 10) - 5; // -5 to +5
+        const newX = Math.floor(currentPos.x) + randomOffset;
+        const newZ = Math.floor(currentPos.z) + randomOffset;
+        const newY = Math.floor(currentPos.y); // Keep same Y level for safety
+        
         return {
-          lastAction: "lookAround",
-          currentPlan: ["lookAround", "moveToPosition 30 144 33", "lookAround"]
+          lastAction: `moveToPosition ${newX} ${newY} ${newZ}`,
+          currentPlan: [`moveToPosition ${newX} ${newY} ${newZ}`, "lookAround"],
+          next: "explore" // Add a 'next' property to help with graph control flow
         };
       } else {
         // Ask for help, but only once or twice
         return {
           lastAction: "askForHelp What would you like me to do next?",
-          currentPlan: ["askForHelp What would you like me to do next?"]
+          currentPlan: ["askForHelp What would you like me to do next?"],
+          next: "wait" // Add a 'next' property to help with graph control flow
         };
       }
     }

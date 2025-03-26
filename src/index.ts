@@ -354,9 +354,37 @@ workflow.addNode("act", runActNodeWrapper);
 // Define edges - use the correct type signatures with type assertions
 // First set the entry point
 workflow.setEntryPoint("observe" as any); // Start with observe node
-// Then add the edges to form a cycle
+
+// Then add the edges to form a cycle with conditional ending
 workflow.addEdge(["observe"] as any, "think" as any);
-workflow.addEdge(["think"] as any, "act" as any);
+
+// Add conditional edge from think to either act or END
+workflow.addEdge(
+  ["think"] as any, 
+  END as any, 
+  (agentState: AgentState) => {
+    // End the graph execution when:
+    // 1. Waiting for instructions state AND
+    // 2. We've asked for help at least once AND
+    // 3. No new goal has been set (lastActionResult doesn't contain "New goal")
+    return agentState.state.currentGoal === "Waiting for instructions" && 
+           agentState.state.lastAction?.includes("askForHelp") &&
+           !agentState.state.lastActionResult?.includes("New goal");
+  }
+);
+
+// Continue with act if the END condition isn't met
+workflow.addEdge(
+  ["think"] as any, 
+  "act" as any, 
+  (agentState: AgentState) => {
+    // Continue to act if we're not ending
+    return !(agentState.state.currentGoal === "Waiting for instructions" && 
+             agentState.state.lastAction?.includes("askForHelp") &&
+             !agentState.state.lastActionResult?.includes("New goal"));
+  }
+);
+
 workflow.addEdge(["act"] as any, "observe" as any); // Complete the loop
 
 // Compile the graph
