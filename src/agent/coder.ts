@@ -327,7 +327,10 @@ Inventory: ${JSON.stringify(currentState.inventory.items)}
 Position: ${JSON.stringify(currentState.surroundings.position)}
 Nearby Blocks: ${currentState.surroundings.nearbyBlocks.slice(0, 10).join(', ')}...
 Nearby Entities: ${currentState.surroundings.nearbyEntities.join(', ')}
-Memory: ${currentState.memory.shortTerm.slice(-3).join(' | ')}`
+Memory: ${currentState.memory.shortTerm.recentActions // Access the array here
+    .slice(-3) // Get last 3 actions
+    .map(entry => `(${new Date(entry.timestamp).toLocaleTimeString()}) ${entry.action} -> ${entry.result.substring(0, 50)}...`) // Format them
+    .join(' | ') || 'None'}` // Join the formatted strings
       },
       { role: 'user', content: `Write the JavaScript code for the following task: ${taskDescription}` }
     ];

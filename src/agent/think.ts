@@ -1,4 +1,5 @@
-import { State } from './types';
+// Add RecentActionEntry to this import
+import { State, RecentActionEntry } from './types';
 import { Planner } from './planner'; // Keep this import
 
 export class ThinkManager {

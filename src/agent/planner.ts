@@ -1,5 +1,6 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { State, Action } from './types';
+// Add RecentActionEntry to this import
+import { State, Action, RecentActionEntry } from './types';
 import { SkillRepository, Skill } from './skills/skillRepository';
 import { actions } from './actions/index';
 
